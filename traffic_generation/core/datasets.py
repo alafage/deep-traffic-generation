@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -34,6 +34,7 @@ class TrafficDataset(Dataset):
         file_path: Union[str, Path],
         features: List[str],
         scaler: Optional[TransformerProtocol] = None,
+        label: Optional[str] = None,
     ) -> None:
         self.file_path = (
             file_path if isinstance(file_path, Path) else Path(file_path)
@@ -44,6 +45,10 @@ class TrafficDataset(Dataset):
         traffic = Traffic.from_file(self.file_path).query(f"cluster != {-1}")
         # extract features
         self.data = extract_features(traffic, self.features)
+        self.labels: Optional[np.ndarray] = None
+
+        if label is not None:
+            self.labels = np.array([f._get_unique(label) for f in traffic])
 
         self.scaler = scaler
         if self.scaler is not None:
@@ -53,10 +58,14 @@ class TrafficDataset(Dataset):
     def __len__(self) -> int:
         return len(self.data)
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         """TODO"""
         trajectory = torch.Tensor(self.data[idx])
-        return trajectory
+        label = 0
+        if self.labels is not None:
+            label = self.labels[idx]
+
+        return trajectory, label
 
     def __repr__(self) -> str:
         head = "Dataset " + self.__class__.__name__

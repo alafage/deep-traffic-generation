@@ -25,7 +25,8 @@ class LinearAE(LightningModule):
         self._check_hparams(config)
 
         self.x_dim = x_dim
-        self.save_hyperparameters(config)
+        self.config = config
+        self.save_hyperparameters(self.config)
 
         # encoder
         self.encoder = nn.Sequential(
@@ -71,22 +72,31 @@ class LinearAE(LightningModule):
         )
 
     def training_step(self, batch, batch_idx):
-        x = batch
+        x, y = batch
         z = self.encoder(x)
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x)
         self.log("train_loss", loss)
         return loss
 
+    def training_epoch_end(self, outputs) -> None:
+        if self.current_epoch == 1:
+            sample = torch.rand((1, self.x_dim))
+            self.logger.experiment.add_graph(
+                LinearAE(self.x_dim, self.config), sample
+            )
+
+        return super().training_epoch_end(outputs)
+
     def validation_step(self, batch, batch_idx):
-        x = batch
+        x, y = batch
         z = self.encoder(x)
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x)
         self.log("hp/valid_loss", loss)
 
     def test_step(self, batch, batch_idx):
-        x = batch
+        x, y = batch
         z = self.encoder(x)
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x)
@@ -143,31 +153,38 @@ def cli_main() -> None:
     # ------------
     parser = ArgumentParser()
     parser.add_argument(
-        "--data_path",
+        "--data-path",
         dest="data_path",
         type=Path,
         default=Path("./data/t_dbscan").absolute(),
     )
     parser.add_argument(
-        "--train_ratio", dest="train_ratio", type=float, default=0.8
+        "--train-ratio", dest="train_ratio", type=float, default=0.8
     )
     parser.add_argument(
-        "--val_ratio", dest="val_ratio", type=float, default=0.2
+        "--val-ratio", dest="val_ratio", type=float, default=0.2
     )
     parser.add_argument(
-        "--batch_size", dest="batch_size", type=int, default=1000
+        "--batch-size", dest="batch_size", type=int, default=1000
     )
     parser.add_argument(
-        "--test_batch_size",
+        "--test-batch-size",
         dest="test_batch_size",
         type=int,
         default=None,
     )
-    parser.add_argument("--early_stop", dest="early_stop", action="store_true")
+    parser.add_argument("--early-stop", dest="early_stop", action="store_true")
     parser.add_argument(
-        "--no-early_stop", dest="early_stop", action="store_false"
+        "--no-early-stop", dest="early_stop", action="store_false"
     )
     parser.set_defaults(early_stop=False)
+    parser.add_argument(
+        "--show-latent", dest="show_latent", action="store_true"
+    )
+    parser.add_argument(
+        "--no-show-latent", dest="show_latent", action="store_false"
+    )
+    parser.set_defaults(show_latent=False)
     parser = Trainer.add_argparse_args(parser)
     parser = LinearAE.add_model_specific_args(parser)
     args = parser.parse_args()
@@ -220,6 +237,12 @@ def cli_main() -> None:
     # testing
     # ------------
     trainer.test(test_dataloaders=test_loader)
+
+    # ------------
+    # visualization
+    # ------------
+    # TODO: if show_latent then use tensorboard to display the data in the
+    # latent space.
 
 
 if __name__ == "__main__":
