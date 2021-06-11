@@ -26,16 +26,16 @@ Package that provides neural networks (mostly autoencoders) to embed and generat
 First, install dependencies   
 ```bash
 # clone project   
-git clone https://github.com/alafage/traffic-generation
+git clone https://github.com/alafage/deep-traffic-generation
 
 # install project   
-cd traffic-generation 
+cd deep-traffic-generation 
 pip install -e .
  ```   
  Next, navigate to any file and run it.   
  ```bash
 # module folder
-cd traffic_generation
+cd deep_traffic_generation
 
 # example: run module
 python linear_ae.py
