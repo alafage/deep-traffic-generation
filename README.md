@@ -43,6 +43,12 @@ python linear_ae.py
 python linear_ae.py --gpus 1 --early_stop --max_epochs 200
 ```
 
+You can use Tensorboard to analyse your network's trainings
+
+```bash
+tensorboard --logdir lightning_logs
+```
+
 ## Imports
 This project is setup as a package which means you can now easily import any file into any other file like so:
 ```python

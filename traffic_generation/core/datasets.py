@@ -42,7 +42,7 @@ class TrafficDataset(Dataset):
         self.features = features
         # self.target_transform = target_transform
 
-        traffic = Traffic.from_file(self.file_path).query(f"cluster != {-1}")
+        traffic = Traffic.from_file(self.file_path)
         # extract features
         self.data = extract_features(traffic, self.features)
         self.labels: Optional[np.ndarray] = None

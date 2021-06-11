@@ -156,7 +156,13 @@ def cli_main() -> None:
         "--data-path",
         dest="data_path",
         type=Path,
-        default=Path("./data/t_dbscan").absolute(),
+        default=Path("./data/denoised_v3.pkl").absolute(),
+    )
+    parser.add_argument(
+        "--features",
+        dest="features",
+        nargs="+",
+        default=["latitude", "longitude", "altitude", "timedelta"],
     )
     parser.add_argument(
         "--train-ratio", dest="train_ratio", type=float, default=0.8
@@ -193,8 +199,8 @@ def cli_main() -> None:
     # data
     # ------------
     dataset = TrafficDataset(
-        "./data/t_dbscan.pkl",
-        features=["latitude", "longitude", "altitude", "timedelta"],
+        args.data_path,
+        features=args.features,
         scaler=MinMaxScaler(feature_range=(-1, 1)),
     )
 
