@@ -1,6 +1,6 @@
 <div align="center">    
  
-# Traffic Generation
+# Deep Traffic Generation
 <!--
 [![Paper](http://img.shields.io/badge/paper-arxiv.1001.2234-B31B1B.svg)](https://www.nature.com/articles/nature14539)
 [![Conference](http://img.shields.io/badge/NeurIPS-2019-4b44ce.svg)](https://papers.nips.cc/book/advances-in-neural-information-processing-systems-31-2018)
@@ -52,7 +52,7 @@ tensorboard --logdir lightning_logs
 ## Imports
 This project is setup as a package which means you can now easily import any file into any other file like so:
 ```python
-from traffic_generation.linear_ae import Linear_AE
+from deep_traffic_generation.linear_ae import Linear_AE
 from pytorch_lightning import Trainer
 
 # model

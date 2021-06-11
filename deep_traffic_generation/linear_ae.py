@@ -10,8 +10,8 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.preprocessing import MinMaxScaler
 from torch.nn import functional as F
 
-from traffic_generation.core.datasets import TrafficDataset
-from traffic_generation.core.utils import get_dataloaders
+from deep_traffic_generation.core.datasets import TrafficDataset
+from deep_traffic_generation.core.utils import get_dataloaders
 
 
 class LinearAE(LightningModule):
@@ -147,7 +147,7 @@ class LinearAE(LightningModule):
 
 
 def cli_main() -> None:
-    pl.seed_everything(1234)
+    pl.seed_everything(42)
     # ------------
     # args
     # ------------

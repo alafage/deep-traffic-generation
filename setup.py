@@ -3,7 +3,7 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="traffic_generation",
+    name="deep_traffic_generation",
     version="0.0.0",
     description="Description",
     author="Adrien Lafage",
