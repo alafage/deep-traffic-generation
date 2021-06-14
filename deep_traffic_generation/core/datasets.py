@@ -9,7 +9,6 @@ from typing_extensions import Protocol
 
 from .utils import extract_features
 
-
 class TransformerProtocol(Protocol):
     def fit(self, X: np.ndarray) -> "TransformerProtocol":
         return self.fit(X)
@@ -35,6 +34,7 @@ class TrafficDataset(Dataset):
         features: List[str],
         scaler: Optional[TransformerProtocol] = None,
         label: Optional[str] = None,
+        seq_mode: bool = False,
     ) -> None:
         self.file_path = (
             file_path if isinstance(file_path, Path) else Path(file_path)
@@ -55,11 +55,13 @@ class TrafficDataset(Dataset):
             self.scaler = self.scaler.fit(self.data)
             self.data = self.scaler.transform(self.data)
 
+        if seq_mode:
+            self.data = self.data.reshape(self.data.shape[0], -1, len(self.features))
+
     def __len__(self) -> int:
         return len(self.data)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
-        """TODO"""
         trajectory = torch.Tensor(self.data[idx])
         label = 0
         if self.labels is not None:

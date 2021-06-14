@@ -1,8 +1,14 @@
 from typing import List, Optional, Protocol, Tuple
 
 import numpy as np
+import pandas as pd
+import torch
+import random
 from torch.utils.data import DataLoader, random_split
 from traffic.core import Traffic
+
+
+from .builders import BuilderProtocol
 
 
 class DatasetProtocol(Protocol):
@@ -72,10 +78,56 @@ def get_dataloaders(
             batch_size=test_batch_size
             if test_batch_size is not None
             else len(val_dataset),
-            shuffle=True,
+            shuffle=False,
             num_workers=num_workers,
         )
     else:
         test_loader = val_loader
 
     return train_loader, val_loader, test_loader
+
+
+# fmt: off
+def init_dataframe(
+    data: np.ndarray, features: List[str], init_features: List[str] = [],
+) -> pd.DataFrame:
+    """ TODO:
+    """
+    # handle dense features (features)
+    dense: np.ndarray = data[:, len(init_features):]
+    nb_samples = data.shape[0]
+    dense = dense.reshape(nb_samples, -1, len(features))
+    nb_obs = dense.shape[1]
+
+    # handle sparce features (init_features)
+    if len(init_features) > 0:
+        sparce = data[:, :len(init_features)]
+        sparce = sparce[:, np.newaxis]
+        sparce = np.insert(
+            sparce, [1] * (nb_obs - 1), [np.nan] * len(init_features), axis=1
+        )
+        dense = np.concatenate((dense, sparce), axis=2)
+        features = features + init_features
+
+    # generate dataframe
+    df = pd.DataFrame(
+        {feature: dense[:, :, i].ravel() for i, feature in enumerate(features)}
+    )
+
+    return df
+
+
+# fmt: on
+def traffic_from_data(
+    data: np.ndarray,
+    features: List[str],
+    init_features: List[str] = [],
+    builder: Optional[BuilderProtocol] = None,
+) -> Traffic:
+
+    df = init_dataframe(data, features, init_features)
+
+    if builder is not None:
+        df = builder(df)
+
+    return Traffic(df)

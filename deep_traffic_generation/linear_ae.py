@@ -1,5 +1,8 @@
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+import numpy as np
 
 import pytorch_lightning as pl
 import torch
@@ -9,9 +12,23 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.preprocessing import MinMaxScaler
 from torch.nn import functional as F
+from traffic.core import Traffic
+from traffic.core.projection import EuroPP
+from typing import Optional
 
-from deep_traffic_generation.core.datasets import TrafficDataset
-from deep_traffic_generation.core.utils import get_dataloaders
+from deep_traffic_generation.core.datasets import (
+    TrafficDataset,
+    TransformerProtocol,
+)
+from deep_traffic_generation.core.utils import (
+    get_dataloaders,
+    traffic_from_data,
+)
+from deep_traffic_generation.core.builders import (
+    CollectionBuilder,
+    IdentifierBuilder,
+    TimestampBuilder,
+)
 
 
 class LinearAE(LightningModule):
@@ -19,30 +36,36 @@ class LinearAE(LightningModule):
 
     _required_hparams = ["learning_rate", "step_size", "gamma"]
 
-    def __init__(self, x_dim: int, config: Namespace) -> None:
+    def __init__(
+        self,
+        x_dim: int,
+        scaler: Optional[TransformerProtocol],
+        config: Namespace,
+    ) -> None:
         super().__init__()
 
         self._check_hparams(config)
 
         self.x_dim = x_dim
+        self.scaler = scaler
         self.config = config
         self.save_hyperparameters(self.config)
 
         # encoder
         self.encoder = nn.Sequential(
-            nn.Linear(self.x_dim, 64),
+            nn.Linear(self.x_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Linear(32, 16),
         )
         # decoder
         self.decoder = nn.Sequential(
-            nn.Linear(16, 32),
-            nn.ReLU(),
             nn.Linear(32, 64),
             nn.ReLU(),
-            nn.Linear(64, self.x_dim),
+            nn.Linear(64, 128),
+            nn.ReLU(),
+            nn.Linear(128, self.x_dim),
         )
 
     def forward(self, x):
@@ -83,7 +106,7 @@ class LinearAE(LightningModule):
         if self.current_epoch == 1:
             sample = torch.rand((1, self.x_dim))
             self.logger.experiment.add_graph(
-                LinearAE(self.x_dim, self.config), sample
+                LinearAE(self.x_dim, self.scaler, self.config), sample
             )
 
         return super().training_epoch_end(outputs)
@@ -101,6 +124,38 @@ class LinearAE(LightningModule):
         x_hat = self.decoder(z)
         loss = F.mse_loss(x_hat, x)
         self.log("hp/test_loss", loss)
+        return x, x_hat
+
+    def test_epoch_end(self, outputs) -> None:
+        idx = 0
+        original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
+        reconstructed = outputs[0][1][idx].unsqueeze(0).cpu().numpy()
+        data = np.concatenate((original, reconstructed))
+        if self.scaler is not None:
+            data = self.scaler.inverse_transform(data)
+        n_samples = 2
+        n_obs = int(data.shape[1] / len(self.hparams.features))
+        builder = CollectionBuilder(
+            [IdentifierBuilder(n_samples, n_obs), TimestampBuilder()]
+        )
+        traffic = traffic_from_data(
+            data, self.hparams.features, builder=builder
+        )
+        # generate plot then send it to logger
+        self.logger.experiment.add_figure(
+            "original vs reconstructed", self.plot_traffic(traffic)
+        )
+
+    def plot_traffic(self, traffic: Traffic) -> Figure:
+        with plt.style.context("traffic"):
+            fig, ax = plt.subplots(
+                1, figsize=(5, 5), subplot_kw=dict(projection=EuroPP())
+            )
+            traffic[1].plot(ax, c="orange", label="reconstructed")
+            traffic[0].plot(ax, c="purple", label="original")
+            ax.legend()
+
+        return fig
 
     @staticmethod
     def add_model_specific_args(
@@ -147,7 +202,7 @@ class LinearAE(LightningModule):
 
 
 def cli_main() -> None:
-    pl.seed_everything(42)
+    pl.seed_everything(42, workers=True)
     # ------------
     # args
     # ------------
@@ -211,6 +266,7 @@ def cli_main() -> None:
         args.batch_size,
         args.test_batch_size,
     )
+
     # ------------
     # logger
     # ------------
@@ -219,7 +275,11 @@ def cli_main() -> None:
     # ------------
     # model
     # ------------
-    model = LinearAE(x_dim=dataset.data.shape[-1], config=args)
+    model = LinearAE(
+        x_dim=dataset.data.shape[-1],
+        scaler=dataset.scaler,
+        config=args,
+    )
 
     # ------------
     # training
