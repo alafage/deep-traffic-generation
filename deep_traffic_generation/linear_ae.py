@@ -270,7 +270,9 @@ def cli_main() -> None:
     # ------------
     # logger
     # ------------
-    tb_logger = TensorBoardLogger("lightning_logs/", default_hp_metric=False)
+    tb_logger = TensorBoardLogger(
+        "lightning_logs/", name="linear_ae", default_hp_metric=False
+    )
 
     # ------------
     # model
