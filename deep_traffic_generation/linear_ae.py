@@ -1,12 +1,14 @@
+# fmt: off
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-import numpy as np
+from typing import Optional
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+from matplotlib.figure import Figure
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -14,23 +16,19 @@ from sklearn.preprocessing import MinMaxScaler
 from torch.nn import functional as F
 from traffic.core import Traffic
 from traffic.core.projection import EuroPP
-from typing import Optional
 
+from deep_traffic_generation.core.builders import (
+    CollectionBuilder, IdentifierBuilder, TimestampBuilder
+)
 from deep_traffic_generation.core.datasets import (
-    TrafficDataset,
-    TransformerProtocol,
+    TrafficDataset, TransformerProtocol
 )
 from deep_traffic_generation.core.utils import (
-    get_dataloaders,
-    traffic_from_data,
-)
-from deep_traffic_generation.core.builders import (
-    CollectionBuilder,
-    IdentifierBuilder,
-    TimestampBuilder,
+    get_dataloaders, traffic_from_data
 )
 
 
+# fmt: on
 class LinearAE(LightningModule):
     """Linear Autoencoder"""
 
@@ -208,7 +206,7 @@ def cli_main() -> None:
     # ------------
     parser = ArgumentParser()
     parser.add_argument(
-        "--data-path",
+        "--data_path",
         dest="data_path",
         type=Path,
         default=Path("./data/denoised_v3.pkl").absolute(),
@@ -220,30 +218,30 @@ def cli_main() -> None:
         default=["latitude", "longitude", "altitude", "timedelta"],
     )
     parser.add_argument(
-        "--train-ratio", dest="train_ratio", type=float, default=0.8
+        "--train_ratio", dest="train_ratio", type=float, default=0.8
     )
     parser.add_argument(
-        "--val-ratio", dest="val_ratio", type=float, default=0.2
+        "--val_ratio", dest="val_ratio", type=float, default=0.2
     )
     parser.add_argument(
-        "--batch-size", dest="batch_size", type=int, default=1000
+        "--batch_size", dest="batch_size", type=int, default=1000
     )
     parser.add_argument(
-        "--test-batch-size",
+        "--test_batch_size",
         dest="test_batch_size",
         type=int,
         default=None,
     )
-    parser.add_argument("--early-stop", dest="early_stop", action="store_true")
+    parser.add_argument("--early_stop", dest="early_stop", action="store_true")
     parser.add_argument(
-        "--no-early-stop", dest="early_stop", action="store_false"
+        "--no_early_stop", dest="early_stop", action="store_false"
     )
     parser.set_defaults(early_stop=False)
     parser.add_argument(
-        "--show-latent", dest="show_latent", action="store_true"
+        "--show_latent", dest="show_latent", action="store_true"
     )
     parser.add_argument(
-        "--no-show-latent", dest="show_latent", action="store_false"
+        "--no_show_latent", dest="show_latent", action="store_false"
     )
     parser.set_defaults(show_latent=False)
     parser = Trainer.add_argparse_args(parser)

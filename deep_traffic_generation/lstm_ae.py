@@ -1,12 +1,14 @@
+# fmt: off
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-import numpy as np
+from typing import List, Optional
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+from matplotlib.figure import Figure
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -14,93 +16,122 @@ from sklearn.preprocessing import MinMaxScaler
 from torch.nn import functional as F
 from traffic.core import Traffic
 from traffic.core.projection import EuroPP
-from typing import Optional
 
+from deep_traffic_generation.core.builders import (
+    CollectionBuilder, IdentifierBuilder, TimestampBuilder
+)
 from deep_traffic_generation.core.datasets import (
-    TrafficDataset,
-    TransformerProtocol,
+    TrafficDataset, TransformerProtocol
 )
 from deep_traffic_generation.core.utils import (
-    get_dataloaders,
-    traffic_from_data,
-)
-from deep_traffic_generation.core.builders import (
-    CollectionBuilder,
-    IdentifierBuilder,
-    TimestampBuilder,
+    get_dataloaders, traffic_from_data
 )
 
+"""
+    Based on sequitur library LSTM_AE (https://github.com/shobrook/sequitur)
+    Adapted to handle batch of sequences
+"""
 
+
+# fmt: on
 class Encoder(nn.Module):
     def __init__(
-        self, seq_len: int, n_features: int, embedding_dim: int = 64
+        self,
+        input_dim: int,
+        out_dim: int,
+        h_dims: List[int],
+        h_activ: Optional[nn.Module],
+        out_activ: Optional[nn.Module],
     ) -> None:
         super().__init__()
 
-        self.seq_len, self.n_features = seq_len, n_features
-        self.embedding_dim, self.hidden_dim = embedding_dim, 2 * embedding_dim
+        layer_dims = [input_dim] + h_dims + [out_dim]
+        self.n_layers = len(layer_dims) - 1
+        self.layers = nn.ModuleList()
 
-        self.rnn1 = nn.LSTM(
-            input_size=n_features,
-            hidden_size=self.hidden_dim,
-            num_layers=1,
-            batch_first=True,
-        )
+        for index in range(self.n_layers):
+            layer = nn.LSTM(
+                input_size=layer_dims[index],
+                hidden_size=layer_dims[index + 1],
+                num_layers=1,
+                batch_first=True,
+            )
+            self.layers.append(layer)
 
-        self.rnn2 = nn.LSTM(
-            input_size=self.hidden_dim,
-            hidden_size=self.embedding_dim,
-            num_layers=1,
-            batch_first=True,
-        )
+        self.dropout = nn.Dropout()
+
+        self.h_activ = h_activ
+        self.out_activ = out_activ
 
     def forward(self, x):
-        x, (_, _) = self.rnn1(x)
-        x, (hidden_state, _) = self.rnn2(x)
-        return hidden_state[-1, :, :]
+        for index, layer in enumerate(self.layers):
+            x, (h_n, c_n) = layer(x)
+
+            if self.h_activ and index < self.n_layers - 1:
+                x = self.h_activ(x)
+            elif self.out_activ and index == self.n_layers - 1:
+
+                h_n = self.out_activ(h_n).squeeze(0)
+
+        return h_n.squeeze(0)
 
 
 class Decoder(nn.Module):
     def __init__(
-        self, seq_len: int, input_dim: int = 64, n_features: int = 1
+        self,
+        input_dim: int,
+        out_dim: int,
+        h_dims: List[int],
+        h_activ: Optional[nn.Module],
     ) -> None:
         super(Decoder, self).__init__()
 
-        self.seq_len, self.input_dim = seq_len, input_dim
-        self.hidden_dim, self.n_features = input_dim, n_features
-        
-        self.rnn1 = nn.LSTM(
-            input_size=input_dim,
-            hidden_size=input_dim,
-            num_layers=1,
-            batch_first=True,
-        )
-        self.rnn2 = nn.LSTM(
-            input_size=input_dim,
-            hidden_size=self.hidden_dim,
-            num_layers=1,
-            batch_first=True,
-        )
-        self.output_layer = nn.Linear(self.hidden_dim, n_features)
+        layer_dims = [
+            input_dim,
+            input_dim,
+        ] + h_dims  # FIXME: why h_dims[-1] is added ?
+        self.n_layers = len(layer_dims) - 1
+        self.layers = nn.ModuleList()
+        for index in range(self.n_layers):
+            layer = nn.LSTM(
+                input_size=layer_dims[index],
+                hidden_size=layer_dims[index + 1],
+                num_layers=1,
+                batch_first=True,
+            )
+            self.layers.append(layer)
 
-    def forward(self, x):
-        x = x.unsqueeze(1).repeat(1, self.seq_len, 1)
-        x, (_, _) = self.rnn1(x)
-        x, (_, _) = self.rnn2(x)
-        x = x.reshape((-1, self.seq_len, self.hidden_dim))
-        out = self.output_layer(x)
-        return out
+        self.dropout = nn.Dropout()
+
+        self.h_activ = h_activ
+        self.fc = nn.Linear(layer_dims[-1], out_dim)
+
+    def forward(self, x, seq_len):
+        x = x.unsqueeze(1).repeat(1, seq_len, 1)
+        for index, layer in enumerate(self.layers):
+            x, (h_n, c_n) = layer(x)
+
+            if self.h_activ and index < self.n_layers - 1:
+                x = self.h_activ(x)
+
+        return self.fc(x)
 
 
 class LSTMAE(LightningModule):
     """LSTM Autoencoder"""
 
-    _required_hparams = ["learning_rate", "step_size", "gamma"]
+    _required_hparams = [
+        "learning_rate",
+        "step_size",
+        "gamma",
+        "encoding_dim",
+        "h_dims",
+    ]
 
     def __init__(
         self,
+        input_dim: int,
         seq_len: int,
-        n_features: int,
         scaler: Optional[TransformerProtocol],
         config: Namespace,
     ) -> None:
@@ -108,24 +139,35 @@ class LSTMAE(LightningModule):
 
         self._check_hparams(config)
 
+        self.input_dim = input_dim
+        self.seq_len = seq_len
+        self.scaler = scaler
         self.config = config
         self.save_hyperparameters(self.config)
 
-        self.seq_len = seq_len
-        self.n_features = n_features
-        self.scaler = scaler
-        self.embedding_dim = self.hparams.embedding_dim
+        # non-linear activations
+        self.h_activ = None
+        self.out_activ = None
 
         self.encoder = Encoder(
-            self.seq_len, self.n_features, self.embedding_dim
+            input_dim=self.input_dim,
+            out_dim=self.hparams.encoding_dim,
+            h_dims=self.hparams.h_dims,
+            h_activ=self.h_activ,
+            out_activ=self.out_activ,
         )
+
         self.decoder = Decoder(
-            self.seq_len, self.embedding_dim, self.n_features
+            input_dim=self.hparams.encoding_dim,
+            out_dim=self.input_dim,
+            h_dims=self.hparams.h_dims[::-1],
+            h_activ=self.h_activ,
         )
 
     def forward(self, x):
-        embedding = self.encoder(x)
-        return embedding
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded, self.seq_len)
+        return encoded, decoded
 
     def configure_optimizers(self) -> dict:
         # optimizer
@@ -152,16 +194,16 @@ class LSTMAE(LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         z = self.encoder(x)
-        x_hat = self.decoder(z)
+        x_hat = self.decoder(z, self.seq_len)
         loss = F.mse_loss(x_hat, x)
         self.log("train_loss", loss)
         return loss
 
     def training_epoch_end(self, outputs) -> None:
-        if self.current_epoch == 1:
-            sample = torch.rand((1, self.seq_len, self.n_features))
+        if self.current_epoch == 0:
+            sample = torch.rand((1, self.seq_len, self.input_dim))
             self.logger.experiment.add_graph(
-                LSTMAE(self.seq_len, self.n_features, self.scaler, self.config),
+                LSTMAE(self.input_dim, self.seq_len, self.scaler, self.config),
                 sample,
             )
 
@@ -170,14 +212,14 @@ class LSTMAE(LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         z = self.encoder(x)
-        x_hat = self.decoder(z)
+        x_hat = self.decoder(z, self.seq_len)
         loss = F.mse_loss(x_hat, x)
         self.log("hp/valid_loss", loss)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
         z = self.encoder(x)
-        x_hat = self.decoder(z)
+        x_hat = self.decoder(z, self.seq_len)
         loss = F.mse_loss(x_hat, x)
         self.log("hp/test_loss", loss)
         return x, x_hat
@@ -248,10 +290,16 @@ class LSTMAE(LightningModule):
             help="multiplicative factor of learning rate decay",
         )
         parser.add_argument(
-            "--embedding",
-            dest="embedding_dim",
+            "--encoding_dim",
+            dest="encoding_dim",
             type=int,
             default=64,
+        )
+        parser.add_argument(
+            "--h_dims",
+            dest="h_dims",
+            nargs="+",
+            default=[],
         )
 
         return parent_parser
@@ -271,7 +319,7 @@ def cli_main() -> None:
     # ------------
     parser = ArgumentParser()
     parser.add_argument(
-        "--data-path",
+        "--data_path",
         dest="data_path",
         type=Path,
         default=Path("./data/denoised_v3.pkl").absolute(),
@@ -283,30 +331,30 @@ def cli_main() -> None:
         default=["latitude", "longitude", "altitude", "timedelta"],
     )
     parser.add_argument(
-        "--train-ratio", dest="train_ratio", type=float, default=0.8
+        "--train_ratio", dest="train_ratio", type=float, default=0.8
     )
     parser.add_argument(
-        "--val-ratio", dest="val_ratio", type=float, default=0.2
+        "--val_ratio", dest="val_ratio", type=float, default=0.2
     )
     parser.add_argument(
-        "--batch-size", dest="batch_size", type=int, default=1000
+        "--batch_size", dest="batch_size", type=int, default=1000
     )
     parser.add_argument(
-        "--test-batch-size",
+        "--test_batch_size",
         dest="test_batch_size",
         type=int,
         default=None,
     )
-    parser.add_argument("--early-stop", dest="early_stop", action="store_true")
+    parser.add_argument("--early_stop", dest="early_stop", action="store_true")
     parser.add_argument(
         "--no-early-stop", dest="early_stop", action="store_false"
     )
     parser.set_defaults(early_stop=False)
     parser.add_argument(
-        "--show-latent", dest="show_latent", action="store_true"
+        "--show_latent", dest="show_latent", action="store_true"
     )
     parser.add_argument(
-        "--no-show-latent", dest="show_latent", action="store_false"
+        "--no_show_latent", dest="show_latent", action="store_false"
     )
     parser.set_defaults(show_latent=False)
     parser = Trainer.add_argparse_args(parser)
@@ -342,8 +390,8 @@ def cli_main() -> None:
     # model
     # ------------
     model = LSTMAE(
+        input_dim=dataset.data.shape[2],
         seq_len=dataset.data.shape[1],
-        n_features=dataset.data.shape[2],
         scaler=dataset.scaler,
         config=args,
     )
