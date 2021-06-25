@@ -3,10 +3,10 @@ from typing import List, Optional, Protocol, Tuple
 import numpy as np
 import pandas as pd
 import torch
-import random
+import torch.nn as nn
+from torch.autograd import Variable
 from torch.utils.data import DataLoader, random_split
 from traffic.core import Traffic
-
 
 from .builders import BuilderProtocol
 
@@ -131,3 +131,26 @@ def traffic_from_data(
         df = builder(df)
 
     return Traffic(df)
+
+
+"""
+    Function below from https://github.com/JulesBelveze/time-series-autoencoder
+"""
+
+
+def init_hidden(
+    x: torch.Tensor, hidden_size: int, num_dir: int = 1, xavier: bool = True
+):
+    """
+    Initialize hidden.
+    Args:
+        x: (torch.Tensor): input tensor
+        hidden_size: (int):
+        num_dir: (int): number of directions in LSTM
+        xavier: (bool): wether or not use xavier initialization
+    """
+    if xavier:
+        return nn.init.xavier_normal_(
+            torch.zeros(num_dir, x.size(0), hidden_size)
+        ).to(x.device)
+    return Variable(torch.zeros(num_dir, x.size(0), hidden_size)).to(x.device)

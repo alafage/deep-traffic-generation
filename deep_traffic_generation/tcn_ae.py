@@ -1,7 +1,8 @@
+# TODO: TCN Autoencoder
 # fmt: off
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,7 +18,7 @@ from torch.nn import functional as F
 from traffic.core import Traffic
 from traffic.core.projection import EuroPP
 
-from deep_traffic_generation.core import FCN
+from deep_traffic_generation.core import TCN
 from deep_traffic_generation.core.builders import (
     CollectionBuilder, IdentifierBuilder, TimestampBuilder
 )
@@ -30,47 +31,138 @@ from deep_traffic_generation.core.utils import (
 
 
 # fmt: on
-class LinearAE(LightningModule):
-    """Linear Autoencoder"""
+class TCEncoder(nn.Module):
+    def __init__(
+        self,
+        input_dim,
+        out_dim,
+        h_dims: List[int],
+        kernel_size: int,
+        dilation_base: int,
+        sampling_factor: int,
+        h_activ: Optional[nn.Module] = None,
+        dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
 
-    _required_hparams = ["learning_rate", "step_size", "gamma"]
+        self.encoder = nn.Sequential(
+            TCN(
+                input_dim,
+                h_dims[-1],
+                h_dims[:-1],
+                kernel_size,
+                dilation_base,
+                h_activ,
+                dropout,
+            ),
+            nn.Conv1d(h_dims[-1], out_dim, kernel_size=1),
+            nn.AvgPool1d(sampling_factor),
+            # We might want to add a non-linear activation
+        )
+
+    def forward(self, x):
+        # print(f"x: {x.size()}")
+        z = self.encoder(x)
+        # print(f"z: {z.size()}")
+        return z
+
+
+class TCDecoder(nn.Module):
+    def __init__(
+        self,
+        input_dim,
+        out_dim,
+        h_dims: List[int],
+        kernel_size: int,
+        dilation_base: int,
+        sampling_factor: int,
+        h_activ: Optional[nn.Module] = None,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+
+        self.decoder = nn.Sequential(
+            nn.Upsample(scale_factor=sampling_factor),
+            TCN(
+                input_dim,
+                h_dims[-1],
+                h_dims[:-1],
+                kernel_size,
+                dilation_base,
+                h_activ,
+                dropout,
+            ),
+            nn.Conv1d(h_dims[-1], out_dim, kernel_size=1),
+        )
+
+    def forward(self, x):
+        # print(f"z: {x.size()}")
+        x_hat = self.decoder(x)
+        return x_hat
+
+
+class TCAE(LightningModule):
+    """Temporal Convolutional Autoencoder
+
+    Source: http://www.gm.fh-koeln.de/ciopwebpub/Thill20a.d/bioma2020-tcn.pdf
+    """
+
+    _required_hparams = [
+        "learning_rate",
+        "step_size",
+        "gamma",
+        "encoding_dim",
+        "sampling_factor",
+        "h_dims",
+        "kernel_size",
+        "dilation_base",
+        "dropout",
+    ]
 
     def __init__(
         self,
         input_dim: int,
+        seq_len: int,
         scaler: Optional[TransformerProtocol],
-        config: Namespace,
-    ) -> None:
+        config: Union[Dict, Namespace],
+    ):
         super().__init__()
 
         self._check_hparams(config)
 
         self.input_dim = input_dim
+        self.seq_len = seq_len
         self.scaler = scaler
         self.config = config
         self.save_hyperparameters(self.config)
 
-        # FIXME: should be in config
-        self.h_activ: Optional[nn.Module] = None
+        # non-linear activations
+        h_activ: Optional[nn.Module] = None
 
-        self.example_input_array = torch.rand((1, self.input_dim))
+        self.example_input_array = torch.rand(
+            (self.input_dim, self.seq_len)
+        ).unsqueeze(0)
 
-        # FIXME: encoder and decoder should be separate classes
-        # encoder
-        self.encoder = FCN(
+        self.encoder = TCEncoder(
             input_dim=input_dim,
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
-            h_activ=self.h_activ,
-            p_dropout=self.hparams.dropout,
+            kernel_size=self.hparams.kernel_size,
+            dilation_base=self.hparams.dilation_base,
+            sampling_factor=self.hparams.sampling_factor,
+            h_activ=h_activ,
+            dropout=self.hparams.dropout,
         )
-        # decoder
-        self.decoder = FCN(
-            input_dim=input_dim,
-            out_dim=self.hparams.encoding_dim,
+
+        self.decoder = TCDecoder(
+            input_dim=self.hparams.encoding_dim,
+            out_dim=input_dim,
             h_dims=self.hparams.h_dims[::-1],
-            h_activ=self.h_activ,
-            p_dropout=self.hparams.dropout,
+            kernel_size=self.hparams.kernel_size,
+            dilation_base=self.hparams.dilation_base,
+            sampling_factor=self.hparams.sampling_factor,
+            h_activ=h_activ,
+            dropout=self.hparams.dropout,
         )
 
     def forward(self, x):
@@ -83,6 +175,9 @@ class LinearAE(LightningModule):
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.hparams.learning_rate
         )
+        # optimizer = torch.optim.SGD(
+        #     self.parameters(), lr=self.hparams.learning_rate, momentum=0.9
+        # )
         # learning rate scheduler
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer,
@@ -124,13 +219,20 @@ class LinearAE(LightningModule):
         return x, x_hat
 
     def test_epoch_end(self, outputs) -> None:
+        """TODO: replace build traffic part by a function."""
         idx = 0
-        original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
-        reconstructed = outputs[0][1][idx].unsqueeze(0).cpu().numpy()
+        original = (
+            outputs[0][0][idx].unsqueeze(0).cpu().numpy().transpose(0, 2, 1)
+        )
+        reconstructed = (
+            outputs[0][1][idx].unsqueeze(0).cpu().numpy().transpose(0, 2, 1)
+        )
         data = np.concatenate((original, reconstructed))
+        n_samples = data.shape[0]
+        # build traffic
+        data = data.reshape((n_samples, -1))
         if self.scaler is not None:
             data = self.scaler.inverse_transform(data)
-        n_samples = 2
         n_obs = int(data.shape[1] / len(self.hparams.features))
         builder = CollectionBuilder(
             [IdentifierBuilder(n_samples, n_obs), TimestampBuilder()]
@@ -158,11 +260,11 @@ class LinearAE(LightningModule):
     def add_model_specific_args(
         parent_parser: ArgumentParser,
     ) -> ArgumentParser:
-        parser = parent_parser.add_argument_group("LinearAE")
+        parser = parent_parser.add_argument_group("TCAE")
         parser.add_argument(
             "--name",
             dest="network_name",
-            default="LinearAE",
+            default="TCAE",
             type=str,
             help="network name",
         )
@@ -191,26 +293,56 @@ class LinearAE(LightningModule):
             "--encoding_dim",
             dest="encoding_dim",
             type=int,
-            default=32,
+            default=4,
         )
         parser.add_argument(
-            "--h_dims", dest="h_dims", type=int, nargs="+", default=[128, 64]
+            "--sampling_factor",
+            dest="sampling_factor",
+            type=int,
+            default=10,
+        )
+        parser.add_argument(
+            "--h_dims",
+            dest="h_dims",
+            nargs="+",
+            type=int,
+            default=[4, 4, 4],
+        )
+        parser.add_argument(
+            "--kernel",
+            dest="kernel_size",
+            type=int,
+            default=16,
+        )
+        parser.add_argument(
+            "--dilation",
+            dest="dilation_base",
+            type=int,
+            default=2,
         )
         parser.add_argument(
             "--dropout",
             dest="dropout",
             type=float,
-            default=0.0,
+            default=0,
         )
 
         return parent_parser
 
-    def _check_hparams(self, hparams: Namespace):
+    def _check_hparams(self, hparams: Union[Dict, Namespace]):
         for hparam in self._required_hparams:
-            if hparam not in vars(hparams).keys():
-                raise AttributeError(
-                    f"Can't set up network, {hparam} is missing."
-                )
+            if isinstance(hparams, Namespace):
+                if hparam not in vars(hparams).keys():
+                    raise AttributeError(
+                        f"Can't set up network, {hparam} is missing."
+                    )
+            elif isinstance(hparams, dict):
+                if hparam not in hparams.keys():
+                    raise AttributeError(
+                        f"Can't set up network, {hparam} is missing."
+                    )
+            else:
+                raise TypeError(f"Invalid type for hparams: {type(hparams)}.")
 
 
 def cli_main() -> None:
@@ -248,7 +380,7 @@ def cli_main() -> None:
     )
     parser.add_argument("--early_stop", dest="early_stop", action="store_true")
     parser.add_argument(
-        "--no_early_stop", dest="early_stop", action="store_false"
+        "--no-early-stop", dest="early_stop", action="store_false"
     )
     parser.set_defaults(early_stop=False)
     parser.add_argument(
@@ -259,7 +391,7 @@ def cli_main() -> None:
     )
     parser.set_defaults(show_latent=False)
     parser = Trainer.add_argparse_args(parser)
-    parser = LinearAE.add_model_specific_args(parser)
+    parser = TCAE.add_model_specific_args(parser)
     args = parser.parse_args()
 
     # ------------
@@ -269,6 +401,7 @@ def cli_main() -> None:
         args.data_path,
         features=args.features,
         scaler=MinMaxScaler(feature_range=(-1, 1)),
+        mode="image",
     )
 
     train_loader, val_loader, test_loader = get_dataloaders(
@@ -284,7 +417,7 @@ def cli_main() -> None:
     # ------------
     tb_logger = TensorBoardLogger(
         "lightning_logs/",
-        name="linear_ae",
+        name="tc_ae",
         default_hp_metric=False,
         log_graph=True,
     )
@@ -292,8 +425,9 @@ def cli_main() -> None:
     # ------------
     # model
     # ------------
-    model = LinearAE(
-        x_dim=dataset.data.shape[-1],
+    model = TCAE(
+        input_dim=dataset.data.shape[1],
+        seq_len=dataset.data.shape[2],
         scaler=dataset.scaler,
         config=args,
     )

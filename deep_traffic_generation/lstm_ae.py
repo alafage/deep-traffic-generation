@@ -1,7 +1,7 @@
 # fmt: off
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -89,7 +89,7 @@ class Decoder(nn.Module):
         layer_dims = [
             input_dim,
             input_dim,
-        ] + h_dims  # FIXME: why h_dims[-1] is added ?
+        ] + h_dims
         self.n_layers = len(layer_dims) - 1
         self.layers = nn.ModuleList()
         for index in range(self.n_layers):
@@ -133,7 +133,7 @@ class LSTMAE(LightningModule):
         input_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
-        config: Namespace,
+        config: Union[Dict, Namespace],
     ) -> None:
         super().__init__()
 
@@ -146,8 +146,12 @@ class LSTMAE(LightningModule):
         self.save_hyperparameters(self.config)
 
         # non-linear activations
-        self.h_activ = None
-        self.out_activ = None
+        self.h_activ: Optional[nn.Module] = None
+        self.out_activ: Optional[nn.Module] = None
+
+        self.example_input_array = torch.rand(
+            (self.seq_len, self.input_dim)
+        ).unsqueeze(0)
 
         self.encoder = Encoder(
             input_dim=self.input_dim,
@@ -199,16 +203,6 @@ class LSTMAE(LightningModule):
         self.log("train_loss", loss)
         return loss
 
-    def training_epoch_end(self, outputs) -> None:
-        if self.current_epoch == 0:
-            sample = torch.rand((1, self.seq_len, self.input_dim))
-            self.logger.experiment.add_graph(
-                LSTMAE(self.input_dim, self.seq_len, self.scaler, self.config),
-                sample,
-            )
-
-        return super().training_epoch_end(outputs)
-
     def validation_step(self, batch, batch_idx):
         x, y = batch
         z = self.encoder(x)
@@ -225,12 +219,14 @@ class LSTMAE(LightningModule):
         return x, x_hat
 
     def test_epoch_end(self, outputs) -> None:
+        """TODO: replace build traffic part by a function."""
         idx = 0
         original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
         reconstructed = outputs[0][1][idx].unsqueeze(0).cpu().numpy()
         data = np.concatenate((original, reconstructed))
-        n_samples = 2
-        data = data.reshape((2, -1))
+        n_samples = data.shape[0]
+        # build traffic
+        data = data.reshape((n_samples, -1))
         if self.scaler is not None:
             data = self.scaler.inverse_transform(data)
         n_obs = int(data.shape[1] / len(self.hparams.features))
@@ -299,17 +295,26 @@ class LSTMAE(LightningModule):
             "--h_dims",
             dest="h_dims",
             nargs="+",
+            type=int,
             default=[],
         )
 
         return parent_parser
 
-    def _check_hparams(self, hparams: Namespace):
+    def _check_hparams(self, hparams: Union[Dict, Namespace]):
         for hparam in self._required_hparams:
-            if hparam not in vars(hparams).keys():
-                raise AttributeError(
-                    f"Can't set up network, {hparam} is missing."
-                )
+            if isinstance(hparams, Namespace):
+                if hparam not in vars(hparams).keys():
+                    raise AttributeError(
+                        f"Can't set up network, {hparam} is missing."
+                    )
+            elif isinstance(hparams, dict):
+                if hparam not in hparams.keys():
+                    raise AttributeError(
+                        f"Can't set up network, {hparam} is missing."
+                    )
+            else:
+                raise TypeError(f"Invalid type for hparams: {type(hparams)}.")
 
 
 def cli_main() -> None:
@@ -368,7 +373,7 @@ def cli_main() -> None:
         args.data_path,
         features=args.features,
         scaler=MinMaxScaler(feature_range=(-1, 1)),
-        seq_mode=True,
+        mode="sequence",
     )
 
     train_loader, val_loader, test_loader = get_dataloaders(
@@ -383,7 +388,10 @@ def cli_main() -> None:
     # logger
     # ------------
     tb_logger = TensorBoardLogger(
-        "lightning_logs/", name="lstm_ae", default_hp_metric=False
+        "lightning_logs/",
+        name="lstm_ae",
+        default_hp_metric=False,
+        log_graph=True,
     )
 
     # ------------

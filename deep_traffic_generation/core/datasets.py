@@ -9,9 +9,10 @@ from typing_extensions import Protocol
 
 from .utils import extract_features
 
+
 class TransformerProtocol(Protocol):
     def fit(self, X: np.ndarray) -> "TransformerProtocol":
-        return self.fit(X)
+        ...
 
     def fit_transform(self, X: np.ndarray) -> np.ndarray:
         ...
@@ -24,9 +25,19 @@ class TransformerProtocol(Protocol):
 
 
 class TrafficDataset(Dataset):
-    """TODO: description"""
+    """Traffic Dataset
+
+    Parameters
+    ----------
+    mode: str (default='linear')
+        Define the shape of the data: `linear` (N, HxL), `sequence` (N, L, H)
+        and `image` (N, H, L).
+        With N the number of instances, H the number of features and L the
+        sequence length.
+    """
 
     _repr_indent = 4
+    _available_modes = ["linear", "sequence", "image"]
 
     def __init__(
         self,
@@ -34,8 +45,14 @@ class TrafficDataset(Dataset):
         features: List[str],
         scaler: Optional[TransformerProtocol] = None,
         label: Optional[str] = None,
-        seq_mode: bool = False,
+        mode: str = "linear",
     ) -> None:
+
+        assert mode in self._available_modes, (
+            f"{mode} mode is not available. "
+            + f"Available modes are: {self._available_modes}"
+        )
+
         self.file_path = (
             file_path if isinstance(file_path, Path) else Path(file_path)
         )
@@ -55,8 +72,12 @@ class TrafficDataset(Dataset):
             self.scaler = self.scaler.fit(self.data)
             self.data = self.scaler.transform(self.data)
 
-        if seq_mode:
-            self.data = self.data.reshape(self.data.shape[0], -1, len(self.features))
+        if mode in ["sequence", "image"]:
+            self.data = self.data.reshape(
+                self.data.shape[0], -1, len(self.features)
+            )
+            if mode == "image":
+                self.data = self.data.transpose(0, 2, 1)
 
     def __len__(self) -> int:
         return len(self.data)
