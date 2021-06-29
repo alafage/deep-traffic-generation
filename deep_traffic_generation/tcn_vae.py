@@ -1,4 +1,4 @@
-# TODO: TCN Variational Autoencoder
+# TODO: TCN Autoencoder
 # fmt: off
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
@@ -40,6 +40,7 @@ class TCEncoder(nn.Module):
         seq_len: int,
         kernel_size: int,
         dilation_base: int,
+        sampling_factor: int,
         h_activ: Optional[nn.Module] = None,
         dropout: float = 0.2,
     ) -> None:
@@ -48,21 +49,29 @@ class TCEncoder(nn.Module):
         self.encoder = nn.Sequential(
             TCN(
                 input_dim,
-                h_dims[-1],
-                h_dims[:-1],
+                h_dims[-2],
+                h_dims[:-2],
                 kernel_size,
                 dilation_base,
                 h_activ,
                 dropout,
             ),
-            nn.Flatten(),
+            nn.Conv1d(h_dims[-2], h_dims[-1], kernel_size=1),
+            nn.AvgPool1d(sampling_factor),
+            # We might want to add a non-linear activation
         )
 
-        self.z_loc = nn.Linear(h_dims[-1] * seq_len, out_dim)
-        self.z_log_var = nn.Linear(h_dims[-1] * seq_len, out_dim)
+        self.z_loc = nn.Linear(
+            h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
+        )
+        self.z_log_var = nn.Linear(
+            h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
+        )
 
     def forward(self, x):
         z = self.encoder(x)
+        _, c, length = z.size()
+        z = z.view(-1, c * length)
         return self.z_loc(z), self.z_log_var(z)
 
 
@@ -72,37 +81,57 @@ class TCDecoder(nn.Module):
         input_dim,
         out_dim,
         h_dims: List[int],
+        seq_len: int,
         kernel_size: int,
         dilation_base: int,
+        sampling_factor: int,
         h_activ: Optional[nn.Module] = None,
         dropout: float = 0.2,
     ):
         super().__init__()
 
-        self.decoder = TCN(
-            input_dim,
-            out_dim,
-            h_dims,
-            kernel_size,
-            dilation_base,
-            h_activ,
-            dropout,
+        self.seq_len = seq_len
+        self.sampling_factor = sampling_factor
+
+        self.decoder = nn.Sequential(
+            nn.Upsample(scale_factor=sampling_factor),
+            TCN(
+                h_dims[0],
+                h_dims[-1],
+                h_dims[1:-1],
+                kernel_size,
+                dilation_base,
+                h_activ,
+                dropout,
+            ),
+            nn.Conv1d(h_dims[-1], out_dim, kernel_size=1),
         )
 
-    def forward(self, x, seq_len):
-        # print(f"z: {x.size()}")
-        x = x.unsqueeze(2).repeat(1, 1, seq_len)
+        self.decode_entry = nn.Linear(
+            input_dim, h_dims[0] * int(seq_len / sampling_factor)
+        )
+
+    def forward(self, x):
+        x = self.decode_entry(x)
+        b, _ = x.size()
+        x = x.view(b, -1, int(self.seq_len / self.sampling_factor))
         x_hat = self.decoder(x)
         return x_hat
 
 
 class TCVAE(LightningModule):
-    """Temporal Convolutional Autoencoder"""
+    """Temporal Convolutional Variational Autoencoder
+
+    Source: http://www.gm.fh-koeln.de/ciopwebpub/Thill20a.d/bioma2020-tcn.pdf
+    """
 
     _required_hparams = [
         "learning_rate",
         "step_size",
         "gamma",
+        "encoding_dim",
+        "sampling_factor",
+        "h_dims",
         "kernel_size",
         "dilation_base",
         "dropout",
@@ -136,9 +165,10 @@ class TCVAE(LightningModule):
             input_dim=input_dim,
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
-            seq_len=seq_len,
+            seq_len=self.seq_len,
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
+            sampling_factor=self.hparams.sampling_factor,
             h_activ=h_activ,
             dropout=self.hparams.dropout,
         )
@@ -147,8 +177,10 @@ class TCVAE(LightningModule):
             input_dim=self.hparams.encoding_dim,
             out_dim=input_dim,
             h_dims=self.hparams.h_dims[::-1],
+            seq_len=self.seq_len,
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
+            sampling_factor=self.hparams.sampling_factor,
             h_activ=h_activ,
             dropout=self.hparams.dropout,
         )
@@ -160,7 +192,7 @@ class TCVAE(LightningModule):
         std = torch.exp(log_var / 2)
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
-        x_hat = self.decoder(z, self.seq_len)
+        x_hat = self.decoder(z)
         return z, x_hat
 
     def configure_optimizers(self) -> dict:
@@ -235,7 +267,7 @@ class TCVAE(LightningModule):
         z = q.rsample()
 
         # decode z
-        x_hat = self.decoder(z, self.seq_len)
+        x_hat = self.decoder(z)
 
         # reconstruction loss
         recon_loss = self.gaussian_likelihood(x_hat, x)
@@ -258,7 +290,7 @@ class TCVAE(LightningModule):
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
 
-        x_hat = self.decoder(z, self.seq_len)
+        x_hat = self.decoder(z)
 
         loss = F.mse_loss(x_hat, x)
 
@@ -272,7 +304,7 @@ class TCVAE(LightningModule):
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
 
-        x_hat = self.decoder(z, self.seq_len)
+        x_hat = self.decoder(z)
 
         loss = F.mse_loss(x_hat, x)
 
@@ -296,7 +328,12 @@ class TCVAE(LightningModule):
             data = self.scaler.inverse_transform(data)
         n_obs = int(data.shape[1] / len(self.hparams.features))
         builder = CollectionBuilder(
-            [IdentifierBuilder(n_samples, n_obs), TimestampBuilder()]
+            [
+                IdentifierBuilder(n_samples, n_obs),
+                TimestampBuilder(),
+                # FIXME: requires first values for lat/lon
+                # LatLonBuilder(build_from="azgs"),
+            ]
         )
         traffic = traffic_from_data(
             data, self.hparams.features, builder=builder
@@ -354,20 +391,26 @@ class TCVAE(LightningModule):
             "--encoding_dim",
             dest="encoding_dim",
             type=int,
-            default=20,
+            default=64,
+        )
+        parser.add_argument(
+            "--sampling_factor",
+            dest="sampling_factor",
+            type=int,
+            default=10,
         )
         parser.add_argument(
             "--h_dims",
             dest="h_dims",
             nargs="+",
             type=int,
-            default=[4],
+            default=[16, 16, 16],
         )
         parser.add_argument(
             "--kernel",
             dest="kernel_size",
             type=int,
-            default=5,
+            default=16,
         )
         parser.add_argument(
             "--dilation",

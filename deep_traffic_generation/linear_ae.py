@@ -62,15 +62,15 @@ class LinearAE(LightningModule):
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
             h_activ=self.h_activ,
-            p_dropout=self.hparams.dropout,
+            dropout=self.hparams.dropout,
         )
         # decoder
         self.decoder = FCN(
-            input_dim=input_dim,
-            out_dim=self.hparams.encoding_dim,
+            input_dim=self.hparams.encoding_dim,
+            out_dim=input_dim,
             h_dims=self.hparams.h_dims[::-1],
             h_activ=self.h_activ,
-            p_dropout=self.hparams.dropout,
+            dropout=self.hparams.dropout,
         )
 
     def forward(self, x):
@@ -293,7 +293,7 @@ def cli_main() -> None:
     # model
     # ------------
     model = LinearAE(
-        x_dim=dataset.data.shape[-1],
+        input_dim=dataset.data.shape[-1],
         scaler=dataset.scaler,
         config=args,
     )

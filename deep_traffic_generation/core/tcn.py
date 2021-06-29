@@ -1,4 +1,3 @@
-# fmt: off
 from typing import List, Optional
 
 import torch.nn as nn
@@ -6,7 +5,6 @@ import torch.nn.functional as F
 from torch.nn.utils import weight_norm
 
 
-# fmt: on
 class TemporalBlock(nn.Module):
     """Temporal Block, a causal and dilated convolution with activation
     and dropout.

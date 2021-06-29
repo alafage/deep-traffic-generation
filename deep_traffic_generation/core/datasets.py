@@ -43,6 +43,7 @@ class TrafficDataset(Dataset):
         self,
         file_path: Union[str, Path],
         features: List[str],
+        init_features: List[str] = [],
         scaler: Optional[TransformerProtocol] = None,
         label: Optional[str] = None,
         mode: str = "linear",
@@ -57,38 +58,68 @@ class TrafficDataset(Dataset):
             file_path if isinstance(file_path, Path) else Path(file_path)
         )
         self.features = features
+        self.init_features = init_features
         # self.target_transform = target_transform
 
         traffic = Traffic.from_file(self.file_path)
         # extract features
-        self.data = extract_features(traffic, self.features)
+        data = extract_features(traffic, features, init_features)
         self.labels: Optional[np.ndarray] = None
 
         if label is not None:
             self.labels = np.array([f._get_unique(label) for f in traffic])
 
+        # fmt: off
+        # separate features from init_features
+        self.dense = data[:, len(init_features):]
+        self.sparse = data[:, :len(init_features)]
+
+        # fmt: on
         self.scaler = scaler
         if self.scaler is not None:
-            self.scaler = self.scaler.fit(self.data)
-            self.data = self.scaler.transform(self.data)
+            self.scaler = self.scaler.fit(self.dense)
+            self.dense = self.scaler.transform(self.dense)
+
+        self.mode = mode
 
         if mode in ["sequence", "image"]:
-            self.data = self.data.reshape(
-                self.data.shape[0], -1, len(self.features)
+            self.dense = self.dense.reshape(
+                self.dense.shape[0], -1, len(self.features)
             )
             if mode == "image":
-                self.data = self.data.transpose(0, 2, 1)
+                self.dense = self.dense.transpose(0, 2, 1)
 
     def __len__(self) -> int:
-        return len(self.data)
+        return len(self.dense)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
-        trajectory = torch.Tensor(self.data[idx])
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int, torch.Tensor]:
+        trajectory = torch.Tensor(self.dense[idx])
+        info = torch.Tensor(self.sparse[idx])
         label = 0
         if self.labels is not None:
             label = self.labels[idx]
 
-        return trajectory, label
+        return trajectory, label, info
+
+    @property
+    def input_dim(self) -> int:
+        if self.mode in ["linear", "sequence"]:
+            return self.dense.shape[-1]
+        elif self.mode == "image":
+            return self.dense.shape[1]
+        else:
+            raise ValueError(f"Invalid mode value: {self.mode}.")
+
+    @property
+    def seq_len(self) -> int:
+        if self.mode == "linear":
+            return int(self.input_dim / len(self.features))
+        elif self.mode == "sequence":
+            return self.dense.shape[1]
+        elif self.mode == "image":
+            return self.dense.shape[2]
+        else:
+            raise ValueError(f"Invalid mode value: {self.mode}.")
 
     def __repr__(self) -> str:
         head = "Dataset " + self.__class__.__name__

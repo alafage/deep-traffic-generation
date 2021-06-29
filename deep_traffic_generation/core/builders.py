@@ -1,7 +1,7 @@
 from typing import Callable, List, Protocol, Tuple, Union
-import pandas as pd
-import numpy as np
 
+import numpy as np
+import pandas as pd
 import pyproj
 from cartopy import crs
 from traffic.core.geodesy import destination
