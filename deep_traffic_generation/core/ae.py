@@ -1,18 +1,19 @@
 # fmt: off
-from argparse import ArgumentParser, Namespace
-from typing import Dict, Optional, Union
+from argparse import ArgumentParser, Namespace, _ArgumentGroup
+from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 import torch
 import torch.nn as nn
 from pytorch_lightning import LightningModule
 from pytorch_lightning.utilities.types import EPOCH_OUTPUT
+from torch.nn import functional as F
 
-from deep_traffic_generation.core.builders import (
+from .builders import (
     CollectionBuilder, IdentifierBuilder, LatLonBuilder, TimestampBuilder
 )
-from deep_traffic_generation.core.datasets import TransformerProtocol
-from deep_traffic_generation.core.utils import plot_traffic, traffic_from_data
+from .datasets import TransformerProtocol
+from .utils import plot_traffic, traffic_from_data
 
 
 # fmt: on
@@ -69,20 +70,58 @@ class AE(LightningModule):
             self.hparams, {"hp/valid_loss": 1, "hp/test_loss": 1}
         )
 
+    def forward(self, x):
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        return z, x_hat
+
+    def training_step(self, batch, batch_idx):
+        x, _, _ = batch
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        loss = F.mse_loss(x_hat, x)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, _, _ = batch
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        loss = F.mse_loss(x_hat, x)
+        self.log("hp/valid_loss", loss)
+
+    def test_step(self, batch, batch_idx):
+        x, _, info = batch
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        loss = F.mse_loss(x_hat, x)
+        self.log("hp/test_loss", loss)
+        return x, x_hat, info
+
     def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
         """FIXME: too messy."""
         idx = 0
         original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
         reconstructed = outputs[0][1][idx].unsqueeze(0).cpu().numpy()
         info = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
-        data = np.concatenate((original, reconstructed))
+        data = np.concatenate((original, reconstructed), axis=0)
         data = data.reshape((data.shape[0], -1))
+        # unscale the data
+        if self.scaler is not None:
+            data = self.scaler.inverse_transform(data)
+        # add info if needed (init_features)
         if len(self.hparams.init_features) > 0:
+            info = np.repeat(info, data.shape[0], axis=0)
             data = np.concatenate((info, data), axis=1)
+        # get builder
         builder = self.get_builder(nb_samples=2)
+        features = [
+            "track" if "track" in f else f for f in self.hparams.features
+        ]
+        # build traffic
         traffic = traffic_from_data(
             data,
-            self.hparams.features,
+            features,
             self.hparams.init_features,
             builder=builder,
         )
@@ -104,13 +143,13 @@ class AE(LightningModule):
 
     @classmethod
     def network_name(cls) -> str:
-        return "ae"
+        raise NotImplementedError()
 
     @classmethod
     def add_model_specific_args(
         cls,
         parent_parser: ArgumentParser,
-    ) -> ArgumentParser:
+    ) -> Tuple[ArgumentParser, _ArgumentGroup]:
         parser = parent_parser.add_argument_group(f"{cls.network_name()}")
         parser.add_argument(
             "--name",
@@ -157,7 +196,7 @@ class AE(LightningModule):
             "--dropout", dest="dropout", type=float, default=0.0
         )
 
-        return parent_parser
+        return parent_parser, parser
 
     def _check_hparams(self, hparams: Union[Dict, Namespace]):
         for hparam in self._required_hparams:

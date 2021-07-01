@@ -240,7 +240,7 @@ def cli_main(
     )
     parser.set_defaults(show_latent=False)
     parser = Trainer.add_argparse_args(parser)
-    parser = cls.add_model_specific_args(parser)
+    parser, _ = cls.add_model_specific_args(parser)
     args = parser.parse_args()
 
     # ------------
