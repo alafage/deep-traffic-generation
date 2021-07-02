@@ -112,6 +112,7 @@ def init_dataframe(
     """
     # handle dense features (features)
     dense: np.ndarray = data[:, len(init_features):]
+    print(dense.shape)
     nb_samples = data.shape[0]
     dense = dense.reshape(nb_samples, -1, len(features))
     nb_obs = dense.shape[1]
