@@ -5,23 +5,9 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from traffic.core import Traffic
-from typing_extensions import Protocol
 
+from .protocols import TransformerProtocol
 from .utils import extract_features
-
-
-class TransformerProtocol(Protocol):
-    def fit(self, X: np.ndarray) -> "TransformerProtocol":
-        ...
-
-    def fit_transform(self, X: np.ndarray) -> np.ndarray:
-        ...
-
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        ...
-
-    def inverse_transform(self, X: np.ndarray) -> np.ndarray:
-        ...
 
 
 class TrafficDataset(Dataset):

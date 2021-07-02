@@ -1,4 +1,4 @@
-from typing import Callable, List, Protocol, Tuple, Union
+from typing import Callable, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -6,10 +6,7 @@ import pyproj
 from cartopy import crs
 from traffic.core.geodesy import destination
 
-
-class BuilderProtocol(Protocol):
-    def __call__(self, data: pd.DataFrame) -> pd.DataFrame:
-        ...
+from .protocols import BuilderProtocol
 
 
 class CollectionBuilder(BuilderProtocol):
@@ -123,6 +120,7 @@ class LatLonBuilder(BuilderProtocol):
                 delta_time = (
                     data.loc[i, "timestamp"] - data.loc[i - 1, "timestamp"]
                 ).total_seconds()
+                # TODO: find best coeff
                 d = gs * delta_time * (1852 / 3600)
                 lat2, lon2, _ = destination(lat1, lon1, track, d)
                 lat[i] = lat2

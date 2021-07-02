@@ -20,7 +20,7 @@ from torch.utils.data.dataset import Dataset
 from traffic.core import Traffic
 from traffic.core.projection import EuroPP
 
-from .builders import BuilderProtocol
+from .protocols import BuilderProtocol
 
 
 def extract_features(

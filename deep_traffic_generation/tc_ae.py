@@ -7,9 +7,8 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from deep_traffic_generation.core import AE, TCN
-from deep_traffic_generation.core.datasets import (
-    TrafficDataset, TransformerProtocol
-)
+from deep_traffic_generation.core.datasets import TrafficDataset
+from deep_traffic_generation.core.protocols import TransformerProtocol
 from deep_traffic_generation.core.utils import cli_main
 
 

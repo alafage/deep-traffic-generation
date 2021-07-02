@@ -1,6 +1,3 @@
 # flake8: noqa
-from .ae import AE
-from .fcn import FCN
-from .rnn import RNN
-from .tcn import TCN
-from .vae import VAE
+from .abstract import AE, VAE
+from .networks import FCN, RNN, TCN
