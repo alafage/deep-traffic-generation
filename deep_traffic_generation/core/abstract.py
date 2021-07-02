@@ -215,7 +215,7 @@ class AE(LightningModule):
 
 
 class VAE(AE):
-    """Abstract class for Variational Autoencoder"""
+    """Abstract class for Beta Variational Autoencoder"""
 
     def __init__(
         self,
@@ -255,8 +255,9 @@ class VAE(AE):
         # kullback-leibler divergence
         kl = self.kl_divergence(z, loc, std)
 
-        # elbo
-        elbo = kl - recon_loss
+        # elbo with beta hyperparameter:
+        #   Higher values enforce orthogonality between latent representation.
+        elbo = self.hparams.beta * kl - recon_loss
         elbo = elbo.mean()
 
         self.log("train_loss", elbo)
@@ -327,3 +328,17 @@ class VAE(AE):
         kl = log_qzx - log_pz
         kl = kl.sum(-1)
         return kl
+
+    @classmethod
+    def add_model_specific_args(
+        cls, parent_parser: ArgumentParser
+    ) -> Tuple[ArgumentParser, _ArgumentGroup]:
+        _, parser = super().add_model_specific_args(parent_parser)
+        parser.add_argument(
+            "--beta",
+            dest="beta",
+            type=float,
+            default=5,
+        )
+
+        return parent_parser, parser
