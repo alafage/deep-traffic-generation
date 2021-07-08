@@ -13,6 +13,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning.loggers import TensorBoardLogger
+from scipy.stats._distn_infrastructure import rv_continuous
 from sklearn.preprocessing import MinMaxScaler
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, random_split
@@ -188,7 +189,6 @@ def init_hidden(
 def cli_main(
     cls: LightningModule, dataset_cls: Dataset, data_mode: str, seed: int = 42
 ) -> None:
-    """TODO: define `AE` to type `cls`."""
     pl.seed_everything(seed, workers=True)
     # ------------
     # args
@@ -303,3 +303,57 @@ def cli_main(
     # testing
     # ------------
     trainer.test(test_dataloaders=test_loader)
+
+
+def build_weights(size: int, builder: rv_continuous, **kwargs) -> np.ndarray:
+    """Build weight array according to a density law."""
+    w = np.array(
+        [builder.pdf(i / (size + 1), **kwargs) for i in range(1, size + 1)]
+    )
+    return w
+
+
+def plot_clusters(traffic: Traffic, cluster_label: str = "cluster") -> Figure:
+    assert (
+        cluster_label in traffic.data.columns
+    ), f"Underlying dataframe should have a {cluster_label} column"
+    clusters = sorted(list(traffic.data[cluster_label].value_counts().keys()))
+    n_clusters = len(clusters)
+    # -- dealing with the grid
+    if n_clusters > 3:
+        nb_cols = 3
+        nb_lines = n_clusters // nb_cols + ((n_clusters % nb_cols) > 0)
+
+        with plt.style.context("traffic"):
+            fig, axs = plt.subplots(
+                nb_lines,
+                nb_cols,
+                figsize=(10, 15),
+                subplot_kw=dict(projection=EuroPP()),
+            )
+
+            for n, cluster in enumerate(clusters):
+                ax = axs[n // nb_cols][n % nb_cols]
+                ax.set_title(f"cluster {cluster}")
+                t_cluster = traffic.query(f"{cluster_label} == {cluster}")
+                t_cluster.plot(ax, alpha=0.5)
+                t_cluster.centroid(nb_samples=None, projection=EuroPP()).plot(
+                    ax, color="red", alpha=1
+                )
+    else:
+        with plt.style.context("traffic"):
+            fig, axs = plt.subplots(
+                n_clusters,
+                figsize=(10, 15),
+                subplot_kw=dict(projection=EuroPP()),
+            )
+
+            for n, cluster in enumerate(clusters):
+                ax = axs[n]
+                ax.set_title(f"cluster {cluster}")
+                t_cluster = traffic.query(f"{cluster_label} == {cluster}")
+                t_cluster.plot(ax, alpha=0.5)
+                t_cluster.centroid(nb_samples=None, projection=EuroPP()).plot(
+                    ax, color="red", alpha=1
+                )
+    return fig

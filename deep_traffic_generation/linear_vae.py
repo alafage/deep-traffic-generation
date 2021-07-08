@@ -42,8 +42,6 @@ class _Encoder(nn.Module):
 class LinearVAE(VAE):
     """Linear Variational Autoencoder"""
 
-    _required_hparams = ["learning_rate", "step_size", "gamma"]
-
     def __init__(
         self,
         input_dim: int,

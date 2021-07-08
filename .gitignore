@@ -1,6 +1,8 @@
 # Custom ignore
 *.pkl
-lightning_logs/
+*.pth
+*.ckpt
+# lightning_logs/
 # VsCode settings
 .vscode
 # Byte-compiled / optimized / DLL files

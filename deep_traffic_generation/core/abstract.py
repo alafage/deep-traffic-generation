@@ -22,8 +22,8 @@ class AE(LightningModule):
 
     _required_hparams = [
         "learning_rate",
-        "step_size",
-        "gamma",
+        # "step_size",
+        # "gamma",
         "encoding_dim",
         "h_dims",
         "dropout",
@@ -54,15 +54,15 @@ class AE(LightningModule):
             self.parameters(), lr=self.hparams.learning_rate
         )
         # learning rate scheduler
-        scheduler = torch.optim.lr_scheduler.StepLR(
-            optimizer,
-            step_size=self.hparams.step_size,
-            gamma=self.hparams.gamma,
-        )
+        # scheduler = torch.optim.lr_scheduler.StepLR(
+        #     optimizer,
+        #     step_size=self.hparams.step_size,
+        #     gamma=self.hparams.gamma,
+        # )
 
         return {
             "optimizer": optimizer,
-            "lr_scheduler": scheduler,
+            # "lr_scheduler": scheduler,
         }
 
     def on_train_start(self) -> None:
@@ -165,20 +165,20 @@ class AE(LightningModule):
             type=float,
             help="learning rate",
         )
-        parser.add_argument(
-            "--lrstep",
-            dest="step_size",
-            default=100,
-            type=int,
-            help="period of learning rate decay (in epochs)",
-        )
-        parser.add_argument(
-            "--lrgamma",
-            dest="gamma",
-            default=1.0,
-            type=float,
-            help="multiplicative factor of learning rate decay",
-        )
+        # parser.add_argument(
+        #     "--lrstep",
+        #     dest="step_size",
+        #     default=100,
+        #     type=int,
+        #     help="period of learning rate decay (in epochs)",
+        # )
+        # parser.add_argument(
+        #     "--lrgamma",
+        #     dest="gamma",
+        #     default=1.0,
+        #     type=float,
+        #     help="multiplicative factor of learning rate decay",
+        # )
         parser.add_argument(
             "--encoding_dim",
             dest="encoding_dim",
@@ -226,7 +226,7 @@ class VAE(AE):
     ) -> None:
         super().__init__(input_dim, seq_len, scaler, config)
 
-        self.scale: nn.Parameter
+        self.scale = nn.Parameter(torch.Tensor([self.hparams.scale]))
 
     def forward(self, x):
         loc, log_var = self.encoder(x)
@@ -251,16 +251,34 @@ class VAE(AE):
 
         # reconstruction loss
         recon_loss = self.gaussian_likelihood(x_hat, x)
+        # recon_loss = F.mse_loss(x, x_hat)
 
         # kullback-leibler divergence
+        C_max = nn.Parameter(
+            torch.Tensor([self.hparams.c_max], device=self.device)
+        )
+        C = torch.clamp(
+            (C_max / self.hparams.c_stop_iter) * self.current_epoch,
+            0,
+            self.hparams.c_max,
+        )
         kl = self.kl_divergence(z, loc, std)
+        # kl = (
+        #     -0.5 * (1 + log_var - loc ** 2 - torch.exp(log_var)).sum(dim=1)
+        # ).mean(dim=0)
 
         # elbo with beta hyperparameter:
         #   Higher values enforce orthogonality between latent representation.
-        elbo = self.hparams.beta * kl - recon_loss
+        elbo = self.hparams.gamma * (kl - C).abs() - recon_loss
         elbo = elbo.mean()
 
-        self.log("train_loss", elbo)
+        self.log_dict(
+            {
+                "train_loss": elbo,
+                "kl_loss": kl.mean(),
+                "recon_loss": recon_loss.mean(),
+            }
+        )
         return elbo
 
     def validation_step(self, batch, batch_idx):
@@ -335,10 +353,27 @@ class VAE(AE):
     ) -> Tuple[ArgumentParser, _ArgumentGroup]:
         _, parser = super().add_model_specific_args(parent_parser)
         parser.add_argument(
-            "--beta",
-            dest="beta",
+            "--gamma",
+            dest="gamma",
             type=float,
-            default=5,
+            default=1,
         )
+        parser.add_argument(
+            "--c_max",
+            dest="c_max",
+            type=int,
+            default=0,
+        )
+        parser.add_argument(
+            "--c_stop_iter",
+            dest="c_stop_iter",
+            type=int,
+            default=1,
+        )
+        parser.add_argument("--scale", dest="scale", type=float, default=1.0)
 
         return parent_parser, parser
+
+
+class GAN(nn.Module):
+    ...
