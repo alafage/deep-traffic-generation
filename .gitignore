@@ -1,6 +1,7 @@
 # Custom ignore
 *.pkl
 *.pth
+*.npy
 *.ckpt
 # lightning_logs/
 # VsCode settings

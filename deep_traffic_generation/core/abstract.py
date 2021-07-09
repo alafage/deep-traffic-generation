@@ -254,9 +254,8 @@ class VAE(AE):
         # recon_loss = F.mse_loss(x, x_hat)
 
         # kullback-leibler divergence
-        C_max = nn.Parameter(
-            torch.Tensor([self.hparams.c_max], device=self.device)
-        )
+        c_max = torch.Tensor([self.hparams.c_max])
+        C_max = nn.Parameter(c_max).to(self.device)
         C = torch.clamp(
             (C_max / self.hparams.c_stop_iter) * self.current_epoch,
             0,
