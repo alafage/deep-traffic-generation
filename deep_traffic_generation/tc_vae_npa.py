@@ -1,3 +1,4 @@
+# TODO: TCN Autoencoder
 # fmt: off
 from argparse import ArgumentParser, Namespace, _ArgumentGroup
 from typing import Dict, List, Optional, Tuple, Union
@@ -5,9 +6,11 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from traffic.data import navaids
 
-from deep_traffic_generation.core import AE, TCN
+from deep_traffic_generation.core import TCN, VAE
 from deep_traffic_generation.core.datasets import TrafficDataset
+from deep_traffic_generation.core.losses import npa_loss
 from deep_traffic_generation.core.protocols import TransformerProtocol
 from deep_traffic_generation.core.utils import cli_main
 
@@ -39,14 +42,21 @@ class TCEncoder(nn.Module):
                 dropout,
             ),
             nn.AvgPool1d(sampling_factor),
-            nn.Flatten(),
-            nn.Linear(h_dims[-1] * (int(seq_len / sampling_factor)), out_dim)
             # We might want to add a non-linear activation
+        )
+
+        self.z_loc = nn.Linear(
+            h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
+        )
+        self.z_log_var = nn.Linear(
+            h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
         )
 
     def forward(self, x):
         z = self.encoder(x)
-        return z
+        _, c, length = z.size()
+        z = z.view(-1, c * length)
+        return self.z_loc(z), self.z_log_var(z)
 
 
 class TCDecoder(nn.Module):
@@ -92,16 +102,17 @@ class TCDecoder(nn.Module):
         return x_hat
 
 
-class TCAE(AE):
-    """Temporal Convolutional Autoencoder
+class TCVAENPA(VAE):
+    """Temporal Convolutional Variational Autoencoder
 
     Source: http://www.gm.fh-koeln.de/ciopwebpub/Thill20a.d/bioma2020-tcn.pdf
     """
 
-    _required_hparams = AE._required_hparams + [
+    _required_hparams = VAE._required_hparams + [
         "sampling_factor",
         "kernel_size",
         "dilation_base",
+        "align_coef",
     ]
 
     def __init__(
@@ -144,17 +155,75 @@ class TCAE(AE):
             dropout=self.hparams.dropout,
         )
 
+    def training_step(self, batch, batch_idx):
+        x, labels, _ = batch
+        # encode x to get the location and log variance parameters
+        loc, log_var = self.encoder(x)
+
+        # sample z from q(z|x)
+        std = torch.exp(log_var / 2)
+        q = torch.distributions.Normal(loc, std)
+        z = q.rsample()
+
+        # decode z
+        x_hat = self.decoder(z)
+
+        # reconstruction loss
+        recon_loss = self.gaussian_likelihood(x_hat, x)
+        # recon_loss = F.mse_loss(x, x_hat)
+
+        # kullback-leibler divergence
+        c_max = torch.Tensor([self.hparams.c_max])
+        C_max = nn.Parameter(c_max).to(self.device)
+        C = torch.clamp(
+            (C_max / self.hparams.c_stop_iter) * self.current_epoch,
+            0,
+            self.hparams.c_max,
+        )
+        kl = self.kl_divergence(z, loc, std)
+
+        # elbo with beta hyperparameter:
+        #   Higher values enforce orthogonality between latent representation.
+        elbo = self.hparams.gamma * (kl - C).abs() - recon_loss
+        elbo = elbo.mean()
+
+        # navigational point alignment loss
+        navids = set(
+            [navid for navids in labels for navid in navids.split(",")]
+        )
+        navpts = torch.Tensor(
+            [[navaids[navid].lat, navaids[navid].lon] for navid in navids]
+        ).to(self.device)
+        npa = npa_loss(x_hat, navpts)
+
+        self.log_dict(
+            {
+                "train_loss": elbo,
+                "kl_loss": kl.mean(),
+                "recon_loss": recon_loss.mean(),
+                "npa": npa,
+            }
+        )
+        return elbo + self.hparams.align_coef * npa
+
     def test_step(self, batch, batch_idx):
         x, _, info = batch
-        z = self.encoder(x)
+        loc, log_var = self.encoder(x)
+
+        std = torch.exp(log_var / 2)
+        q = torch.distributions.Normal(loc, std)
+        z = q.rsample()
+
         x_hat = self.decoder(z)
+
         loss = F.mse_loss(x_hat, x)
+
         self.log("hp/test_loss", loss)
         return torch.transpose(x, 1, 2), torch.transpose(x_hat, 1, 2), info
 
     @classmethod
     def network_name(cls) -> str:
-        return "tc_ae"
+        return "tc_vae_npa"
 
     @classmethod
     def add_model_specific_args(
@@ -179,9 +248,15 @@ class TCAE(AE):
             type=int,
             default=2,
         )
+        parser.add_argument(
+            "--align_coef",
+            dest="align_coef",
+            type=float,
+            default=1.0,
+        )
 
         return parent_parser, parser
 
 
 if __name__ == "__main__":
-    cli_main(TCAE, TrafficDataset, "image", seed=42)
+    cli_main(TCVAENPA, TrafficDataset, "image", seed=42)

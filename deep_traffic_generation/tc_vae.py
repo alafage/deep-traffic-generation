@@ -12,51 +12,8 @@ from deep_traffic_generation.core.datasets import TrafficDataset
 from deep_traffic_generation.core.protocols import TransformerProtocol
 from deep_traffic_generation.core.utils import cli_main
 
+
 # fmt: on
-# class TCEncoder(nn.Module):
-#     def __init__(
-#         self,
-#         input_dim,
-#         out_dim,
-#         h_dims: List[int],
-#         seq_len: int,
-#         kernel_size: int,
-#         dilation_base: int,
-#         sampling_factor: int,
-#         h_activ: Optional[nn.Module] = None,
-#         dropout: float = 0.2,
-#     ) -> None:
-#         super().__init__()
-
-#         self.encoder = nn.Sequential(
-#             TCN(
-#                 input_dim,
-#                 h_dims[-2],
-#                 h_dims[:-2],
-#                 kernel_size,
-#                 dilation_base,
-#                 h_activ,
-#                 dropout,
-#             ),
-#             nn.Conv1d(h_dims[-2], h_dims[-1], kernel_size=1),
-#             nn.AvgPool1d(sampling_factor),
-#             # We might want to add a non-linear activation
-#         )
-
-#         self.z_loc = nn.Linear(
-#             h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
-#         )
-#         self.z_log_var = nn.Linear(
-#             h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
-#         )
-
-#     def forward(self, x):
-#         z = self.encoder(x)
-#         _, c, length = z.size()
-#         z = z.view(-1, c * length)
-#         return self.z_loc(z), self.z_log_var(z)
-
-
 class TCEncoder(nn.Module):
     def __init__(
         self,
@@ -98,50 +55,6 @@ class TCEncoder(nn.Module):
         _, c, length = z.size()
         z = z.view(-1, c * length)
         return self.z_loc(z), self.z_log_var(z)
-
-
-# class TCDecoder(nn.Module):
-#     def __init__(
-#         self,
-#         input_dim,
-#         out_dim,
-#         h_dims: List[int],
-#         seq_len: int,
-#         kernel_size: int,
-#         dilation_base: int,
-#         sampling_factor: int,
-#         h_activ: Optional[nn.Module] = None,
-#         dropout: float = 0.2,
-#     ):
-#         super().__init__()
-
-#         self.seq_len = seq_len
-#         self.sampling_factor = sampling_factor
-
-#         self.decoder = nn.Sequential(
-#             nn.Upsample(scale_factor=sampling_factor),
-#             TCN(
-#                 h_dims[0],
-#                 h_dims[-1],
-#                 h_dims[1:-1],
-#                 kernel_size,
-#                 dilation_base,
-#                 h_activ,
-#                 dropout,
-#             ),
-#             nn.Conv1d(h_dims[-1], out_dim, kernel_size=1),
-#         )
-
-#         self.decode_entry = nn.Linear(
-#             input_dim, h_dims[0] * int(seq_len / sampling_factor)
-#         )
-
-#     def forward(self, x):
-#         x = self.decode_entry(x)
-#         b, _ = x.size()
-#         x = x.view(b, -1, int(self.seq_len / self.sampling_factor))
-#         x_hat = self.decoder(x)
-#         return x_hat
 
 
 class TCDecoder(nn.Module):

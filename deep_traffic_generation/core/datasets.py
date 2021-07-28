@@ -50,6 +50,7 @@ class TrafficDataset(Dataset):
         traffic = Traffic.from_file(self.file_path)
         # extract features
         data = extract_features(traffic, features, init_features)
+        self.label = label
         self.labels: Optional[np.ndarray] = None
 
         if label is not None:
@@ -78,11 +79,11 @@ class TrafficDataset(Dataset):
     def __len__(self) -> int:
         return len(self.dense)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, List, torch.Tensor]:
         trajectory = torch.Tensor(self.dense[idx])
         info = torch.Tensor(self.sparse[idx])
-        label = 0
-        if self.labels is not None:
+        label = []
+        if self.label is not None:
             label = self.labels[idx]
 
         return trajectory, label, info

@@ -8,6 +8,7 @@ import torch.nn as nn
 from pytorch_lightning import LightningModule
 from pytorch_lightning.utilities.types import EPOCH_OUTPUT
 from torch.nn import functional as F
+from traffic.core.projection import EuroPP
 
 from .builders import (
     CollectionBuilder, IdentifierBuilder, LatLonBuilder, TimestampBuilder
@@ -22,8 +23,8 @@ class AE(LightningModule):
 
     _required_hparams = [
         "learning_rate",
-        # "step_size",
-        # "gamma",
+        "lr_step_size",
+        "lr_gamma",
         "encoding_dim",
         "h_dims",
         "dropout",
@@ -54,15 +55,15 @@ class AE(LightningModule):
             self.parameters(), lr=self.hparams.learning_rate
         )
         # learning rate scheduler
-        # scheduler = torch.optim.lr_scheduler.StepLR(
-        #     optimizer,
-        #     step_size=self.hparams.step_size,
-        #     gamma=self.hparams.gamma,
-        # )
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer,
+            step_size=self.hparams.lr_step_size,
+            gamma=self.hparams.lr_gamma,
+        )
 
         return {
             "optimizer": optimizer,
-            # "lr_scheduler": scheduler,
+            "lr_scheduler": scheduler,
         }
 
     def on_train_start(self) -> None:
@@ -134,11 +135,11 @@ class AE(LightningModule):
         builder = CollectionBuilder(
             [IdentifierBuilder(nb_samples, self.seq_len), TimestampBuilder()]
         )
-        if "latitude" not in self.hparams.features:
-            if "x" in self.hparams.features:
-                builder.append(LatLonBuilder(build_from="xy"))
-            elif "track_unwrapped" in self.hparams.features:
-                builder.append(LatLonBuilder(build_from="azgs"))
+        if "track_unwrapped" in self.hparams.features:
+            builder.append(LatLonBuilder(build_from="azgs"))
+        elif "x" in self.hparams.features:
+            builder.append(LatLonBuilder(build_from="xy", projection=EuroPP()))
+
         return builder
 
     @classmethod
@@ -165,20 +166,20 @@ class AE(LightningModule):
             type=float,
             help="learning rate",
         )
-        # parser.add_argument(
-        #     "--lrstep",
-        #     dest="step_size",
-        #     default=100,
-        #     type=int,
-        #     help="period of learning rate decay (in epochs)",
-        # )
-        # parser.add_argument(
-        #     "--lrgamma",
-        #     dest="gamma",
-        #     default=1.0,
-        #     type=float,
-        #     help="multiplicative factor of learning rate decay",
-        # )
+        parser.add_argument(
+            "--lrstep",
+            dest="lr_step_size",
+            default=100,
+            type=int,
+            help="period of learning rate decay (in epochs)",
+        )
+        parser.add_argument(
+            "--lrgamma",
+            dest="lr_gamma",
+            default=1.0,
+            type=float,
+            help="multiplicative factor of learning rate decay",
+        )
         parser.add_argument(
             "--encoding_dim",
             dest="encoding_dim",
@@ -262,9 +263,6 @@ class VAE(AE):
             self.hparams.c_max,
         )
         kl = self.kl_divergence(z, loc, std)
-        # kl = (
-        #     -0.5 * (1 + log_var - loc ** 2 - torch.exp(log_var)).sum(dim=1)
-        # ).mean(dim=0)
 
         # elbo with beta hyperparameter:
         #   Higher values enforce orthogonality between latent representation.
@@ -312,7 +310,6 @@ class VAE(AE):
     def gaussian_likelihood(self, x_hat, x):
         mean = x_hat
         dist = torch.distributions.Normal(mean, self.scale)
-
         # measure prob of seeing trajectory under p(x|z)
         log_pxz = dist.log_prob(x)
         dims = [i for i in range(1, len(x.size()))]

@@ -27,7 +27,9 @@ def npa_loss(
     x2 = navpoints[:, 0]
     y2 = navpoints[:, 1]
     # bearings: (N, L, len(navpoints))
-    bearings = torch.atan2(x2 - x1, y2 - y1) - torch.Tensor([math.pi / 2])
+    bearings = torch.atan2(x2 - x1, y2 - y1) - torch.Tensor([math.pi / 2]).to(
+        input.device
+    )
     # mins: (N, L)
     mins, _ = torch.min((tracks - bearings).abs(), dim=2)
     # loss: (N)

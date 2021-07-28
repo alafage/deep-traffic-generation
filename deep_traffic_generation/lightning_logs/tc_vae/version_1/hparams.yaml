@@ -7,6 +7,8 @@ auto_scale_batch_size: false
 auto_select_gpus: false
 batch_size: 1000
 benchmark: false
+c_max: 0
+c_stop_iter: 1
 check_val_every_n_epoch: 1
 checkpoint_callback: true
 data_path: !!python/object/apply:pathlib.PosixPath
@@ -23,15 +25,15 @@ dilation_base: 2
 distributed_backend: null
 dropout: 0.0
 early_stop: false
-encoding_dim: 16
+encoding_dim: 64
 fast_dev_run: false
 features:
-- latitude
-- longitude
+- track_unwrapped
+- groundspeed
 - altitude
 - timedelta
 flush_logs_every_n_steps: 100
-gamma: 1.0
+gamma: 1
 gpus: 1
 gradient_clip_algorithm: norm
 gradient_clip_val: 0.0
@@ -39,8 +41,9 @@ h_dims:
 - 16
 - 16
 - 16
-- 8
-init_features: []
+init_features:
+- latitude
+- longitude
 kernel_size: 16
 learning_rate: 0.001
 limit_predict_batches: 1.0
@@ -50,6 +53,8 @@ limit_val_batches: 1.0
 log_every_n_steps: 50
 log_gpu_memory: null
 logger: true
+lr_gamma: 1.0
+lr_step_size: 100
 max_epochs: 200
 max_steps: null
 max_time: null
@@ -72,8 +77,8 @@ reload_dataloaders_every_epoch: false
 replace_sampler_ddp: true
 resume_from_checkpoint: null
 sampling_factor: 10
+scale: 1.0
 show_latent: false
-step_size: 100
 stochastic_weight_avg: false
 sync_batchnorm: false
 terminate_on_nan: false
