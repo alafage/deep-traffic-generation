@@ -194,6 +194,7 @@ class TCVAENPA(VAE):
         navpts = torch.Tensor(
             [[navaids[navid].lat, navaids[navid].lon] for navid in navids]
         ).to(self.device)
+
         npa = npa_loss(x_hat, navpts)
 
         self.log_dict(

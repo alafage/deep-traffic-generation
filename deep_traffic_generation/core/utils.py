@@ -213,6 +213,12 @@ def cli_main(
         default=[],
     )
     parser.add_argument(
+        "--label",
+        dest="label",
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
         "--train_ratio", dest="train_ratio", type=float, default=0.8
     )
     parser.add_argument(
@@ -251,6 +257,7 @@ def cli_main(
         features=args.features,
         init_features=args.init_features,
         scaler=MinMaxScaler(feature_range=(-1, 1)),
+        label=args.label,
         mode=data_mode,
     )
 

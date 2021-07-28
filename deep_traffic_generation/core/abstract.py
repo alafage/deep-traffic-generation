@@ -1,6 +1,6 @@
 # fmt: off
 from argparse import ArgumentParser, Namespace, _ArgumentGroup
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, OrderedDict, Tuple, Union
 
 import numpy as np
 import torch
@@ -216,7 +216,7 @@ class AE(LightningModule):
 
 
 class VAE(AE):
-    """Abstract class for Beta Variational Autoencoder"""
+    """Abstract class for Variational Autoencoder"""
 
     def __init__(
         self,
@@ -371,5 +371,116 @@ class VAE(AE):
         return parent_parser, parser
 
 
-class GAN(nn.Module):
-    ...
+class GAN(LightningModule):
+    """Abstract class for Generative Adversarial Network"""
+
+    _required_hparams = [
+        "learning_rate",
+        "beta1",
+        "beta2",
+        "latent_dim",
+    ]
+
+    def __init__(
+        self,
+        input_dim: int,
+        seq_len: int,
+        scaler: Optional[TransformerProtocol],
+        config: Union[Dict, Namespace],
+    ) -> None:
+        super().__init__()
+
+        self._check_hparams(config)
+
+        self.input_dim = input_dim
+        self.seq_len = seq_len
+        self.scaler = scaler
+        self.save_hyperparameters(config)
+
+        self.generator: nn.Module
+        self.discriminator: nn.Module
+
+        self.validation_z = torch.randn(8, self.hparams.latent_dim)
+
+    def configure_optimizers(self) -> Tuple[list, list]:
+        lr = self.hparams.learning_rate
+        b1 = self.hparams.beta1
+        b2 = self.hparams.beta2
+
+        opt_g = torch.optim.Adam(
+            self.generator.parameters(), lr=lr, betas=(b1, b2)
+        )
+        opt_d = torch.optim.Adam(
+            self.discriminator.parameters(), lr=lr, betas=(b1, b2)
+        )
+        return [opt_g, opt_d], []
+
+    def forward(self, z):
+        return self.generator(z)
+
+    def adversarial_loss(self, y_hat, y):
+        return F.binary_cross_entropy(y_hat, y)
+
+    def training_step(self, batch, batch_idx, optimizer_idx):
+        x, _, _ = batch
+
+        # sample noise
+        z = torch.randn(x.size(0), self.hparams.latent_dim)
+        z = z.type_as(x)
+
+        # train generator
+        if optimizer_idx == 0:
+            # ground truth result (ie: all fake)
+            # put on GPU because we created this tensor inside training loop
+            valid = torch.ones(x.size(0), 1)
+            valid = valid.type_as(x)
+
+            # adversarial loss is binary cross-entropy
+            g_loss = self.adversarial_loss(self.discriminator(self(z)), valid)
+            tqdm_dict = {"g_loss": g_loss}
+            output = OrderedDict(
+                {"loss": g_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+            )
+            return output
+
+        # train discriminator
+        if optimizer_idx == 1:
+            # Measure discriminator's ability to classify real from generated
+            # samples
+
+            # how well can it label as real?
+            valid = torch.ones(x.size(0), 1)
+            valid = valid.type_as(x)
+
+            real_loss = self.adversarial_loss(self.discriminator(x), valid)
+
+            # how well can it label as fake?
+            fake = torch.zeros(x.size(0), 1)
+            fake = fake.type_as(x)
+
+            fake_loss = self.adversarial_loss(
+                self.discriminator(self(z).detach()), fake
+            )
+
+            # discriminator loss is the average of these
+            d_loss = (real_loss + fake_loss) / 2
+            tqdm_dict = {"d_loss": d_loss}
+            output = OrderedDict(
+                {"loss": d_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+            )
+            return output
+
+    def _check_hparams(self, hparams: Union[Dict, Namespace]):
+        for hparam in self._required_hparams:
+            if isinstance(hparams, Namespace):
+                if hparam not in vars(hparams).keys():
+                    raise AttributeError(
+                        f"Can't set up network, {hparam} is missing."
+                    )
+            elif isinstance(hparams, dict):
+                if hparam not in hparams.keys():
+                    raise AttributeError(
+                        f"Can't set up network, {hparam} is missing."
+                    )
+            else:
+                raise TypeError(f"Invalid type for hparams: {type(hparams)}.")
