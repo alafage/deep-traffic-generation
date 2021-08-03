@@ -1,64 +1,17 @@
-# TODO: TCN Autoencoder
 # fmt: off
 from argparse import ArgumentParser, Namespace, _ArgumentGroup
 from typing import Dict, List, Optional, Tuple, Union
 
-import torch
 import torch.nn as nn
-from torch.nn import functional as F
 
-from deep_traffic_generation.core import TCN, VAE
+from deep_traffic_generation.core import GAN, TCN
 from deep_traffic_generation.core.datasets import TrafficDataset
 from deep_traffic_generation.core.protocols import TransformerProtocol
 from deep_traffic_generation.core.utils import cli_main
 
 
 # fmt: on
-class TCEncoder(nn.Module):
-    def __init__(
-        self,
-        input_dim: int,
-        out_dim: int,
-        h_dims: List[int],
-        seq_len: int,
-        kernel_size: int,
-        dilation_base: int,
-        sampling_factor: int,
-        h_activ: Optional[nn.Module] = None,
-        dropout: float = 0.2,
-    ) -> None:
-        super().__init__()
-
-        self.encoder = nn.Sequential(
-            TCN(
-                input_dim,
-                h_dims[-1],
-                h_dims[:-1],
-                kernel_size,
-                dilation_base,
-                h_activ,
-                dropout,
-            ),
-            nn.AvgPool1d(sampling_factor),
-            # We might want to add a non-linear activation
-            # nn.Tanh(),
-        )
-
-        self.z_loc = nn.Linear(
-            h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
-        )
-        self.z_log_var = nn.Linear(
-            h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
-        )
-
-    def forward(self, x):
-        z = self.encoder(x)
-        _, c, length = z.size()
-        z = z.view(-1, c * length)
-        return self.z_loc(z), self.z_log_var(z)
-
-
-class TCDecoder(nn.Module):
+class TCGenerator(nn.Module):
     def __init__(
         self,
         input_dim: int,
@@ -76,11 +29,11 @@ class TCDecoder(nn.Module):
         self.seq_len = seq_len
         self.sampling_factor = sampling_factor
 
-        self.decode_entry = nn.Linear(
+        self.generate_from_entry = nn.Linear(
             input_dim, h_dims[0] * int(seq_len / sampling_factor)
         )
 
-        self.decoder = nn.Sequential(
+        self.generator = nn.Sequential(
             nn.Upsample(scale_factor=sampling_factor),
             TCN(
                 h_dims[0],
@@ -91,24 +44,50 @@ class TCDecoder(nn.Module):
                 h_activ,
                 dropout,
             ),
-            # nn.Tanh(),
+            nn.Tanh(),
         )
 
     def forward(self, x):
-        x = self.decode_entry(x)
+        x = self.generate_from_entry(x)
         b, _ = x.size()
         x = x.view(b, -1, int(self.seq_len / self.sampling_factor))
-        x_hat = self.decoder(x)
+        x_hat = self.generator(x)
         return x_hat
 
 
-class TCVAE(VAE):
-    """Temporal Convolutional Variational Autoencoder
+class TCDiscriminator(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        h_dims: List[int],
+        kernel_size: int,
+        dilation_base: int,
+        h_activ: Optional[nn.Module] = None,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
 
-    Source: http://www.gm.fh-koeln.de/ciopwebpub/Thill20a.d/bioma2020-tcn.pdf
-    """
+        self.discriminator = nn.Sequential(
+            TCN(
+                input_dim,
+                1,
+                h_dims,
+                kernel_size,
+                dilation_base,
+                h_activ,
+                dropout,
+            ),
+            nn.Sigmoid(),
+        )
 
-    _required_hparams = VAE._required_hparams + [
+    def forward(self, x):
+        return self.discriminator(x)
+
+
+class TCGAN(GAN):
+    """Temporal Convolutional Generative Adversarial Network"""
+
+    _required_hparams = GAN._required_hparams + [
         "sampling_factor",
         "kernel_size",
         "dilation_base",
@@ -126,13 +105,9 @@ class TCVAE(VAE):
         # non-linear activations
         h_activ: Optional[nn.Module] = None
 
-        self.example_input_array = torch.rand(
-            (self.input_dim, self.seq_len)
-        ).unsqueeze(0)
-
-        self.encoder = TCEncoder(
-            input_dim=x_dim,
-            out_dim=self.hparams.encoding_dim,
+        self.generator = TCGenerator(
+            input_dim=self.hparams.latent_dim,
+            out_dim=self.out_dim,
             h_dims=self.hparams.h_dims,
             seq_len=self.seq_len,
             kernel_size=self.hparams.kernel_size,
@@ -142,36 +117,18 @@ class TCVAE(VAE):
             dropout=self.hparams.dropout,
         )
 
-        self.decoder = TCDecoder(
-            input_dim=self.hparams.encoding_dim,
-            out_dim=x_dim,
-            h_dims=self.hparams.h_dims[::-1],
-            seq_len=self.seq_len,
+        self.discriminator = TCDiscriminator(
+            input_dim=self.out_dim,
+            h_dims=self.hparams.h_dims,
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
-            sampling_factor=self.hparams.sampling_factor,
             h_activ=h_activ,
             dropout=self.hparams.dropout,
         )
 
-    def test_step(self, batch, batch_idx):
-        x, _, info = batch
-        loc, log_var = self.encoder(x)
-
-        std = torch.exp(log_var / 2)
-        q = torch.distributions.Normal(loc, std)
-        z = q.rsample()
-
-        x_hat = self.decoder(z)
-
-        loss = F.mse_loss(x_hat, x)
-
-        self.log("hp/test_loss", loss)
-        return torch.transpose(x, 1, 2), torch.transpose(x_hat, 1, 2), info
-
     @classmethod
     def network_name(cls) -> str:
-        return "tc_vae"
+        return "tc_gan"
 
     @classmethod
     def add_model_specific_args(
@@ -201,4 +158,4 @@ class TCVAE(VAE):
 
 
 if __name__ == "__main__":
-    cli_main(TCVAE, TrafficDataset, "image", seed=42)
+    cli_main(TCGAN, TrafficDataset, "image", seed=42)

@@ -1,6 +1,6 @@
 # fmt: off
 from argparse import ArgumentParser, Namespace, _ArgumentGroup
-from typing import Dict, Optional, OrderedDict, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -18,6 +18,40 @@ from .utils import plot_traffic, traffic_from_data
 
 
 # fmt: on
+class Abstract(LightningModule):
+    """TODO: Abstract class for deep models"""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    @classmethod
+    def network_name(cls) -> str:
+        raise NotImplementedError()
+
+    @classmethod
+    def add_model_specific_args(
+        cls,
+        parent_parser: ArgumentParser,
+    ) -> Tuple[ArgumentParser, _ArgumentGroup]:
+        parser = parent_parser.add_argument_group(f"{cls.network_name()}")
+        parser.add_argument(
+            "--name",
+            dest="network_name",
+            default=f"{cls.network_name()}",
+            type=str,
+            help="network name",
+        )
+        parser.add_argument(
+            "--lr",
+            dest="learning_rate",
+            default=1e-3,
+            type=float,
+            help="learning rate",
+        )
+
+        return parent_parser, parser
+
+
 class AE(LightningModule):
     """Abstract class for Autoencoder"""
 
@@ -32,7 +66,7 @@ class AE(LightningModule):
 
     def __init__(
         self,
-        input_dim: int,
+        x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
         config: Union[Dict, Namespace],
@@ -41,7 +75,7 @@ class AE(LightningModule):
 
         self._check_hparams(config)
 
-        self.input_dim = input_dim
+        self.input_dim = x_dim
         self.seq_len = seq_len
         self.scaler = scaler
         self.save_hyperparameters(config)
@@ -220,12 +254,12 @@ class VAE(AE):
 
     def __init__(
         self,
-        input_dim: int,
+        x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(input_dim, seq_len, scaler, config)
+        super().__init__(x_dim, seq_len, scaler, config)
 
         self.scale = nn.Parameter(torch.Tensor([self.hparams.scale]))
 
@@ -376,14 +410,14 @@ class GAN(LightningModule):
 
     _required_hparams = [
         "learning_rate",
-        "beta1",
-        "beta2",
         "latent_dim",
+        "h_dims",
+        "dropout",
     ]
 
     def __init__(
         self,
-        input_dim: int,
+        x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
         config: Union[Dict, Namespace],
@@ -392,7 +426,7 @@ class GAN(LightningModule):
 
         self._check_hparams(config)
 
-        self.input_dim = input_dim
+        self.out_dim = x_dim
         self.seq_len = seq_len
         self.scaler = scaler
         self.save_hyperparameters(config)
@@ -400,20 +434,17 @@ class GAN(LightningModule):
         self.generator: nn.Module
         self.discriminator: nn.Module
 
-        self.validation_z = torch.randn(8, self.hparams.latent_dim)
+        self.example_input_array = torch.randn(1, self.hparams.latent_dim)
 
     def configure_optimizers(self) -> Tuple[list, list]:
         lr = self.hparams.learning_rate
-        b1 = self.hparams.beta1
-        b2 = self.hparams.beta2
 
-        opt_g = torch.optim.Adam(
-            self.generator.parameters(), lr=lr, betas=(b1, b2)
-        )
-        opt_d = torch.optim.Adam(
-            self.discriminator.parameters(), lr=lr, betas=(b1, b2)
-        )
+        opt_g = torch.optim.Adam(self.generator.parameters(), lr=lr)
+        opt_d = torch.optim.Adam(self.discriminator.parameters(), lr=lr)
         return [opt_g, opt_d], []
+
+    def on_train_start(self) -> None:
+        self.logger.log_hyperparams(self.hparams, {"hp/valid_loss": 1})
 
     def forward(self, z):
         return self.generator(z)
@@ -432,16 +463,18 @@ class GAN(LightningModule):
         if optimizer_idx == 0:
             # ground truth result (ie: all fake)
             # put on GPU because we created this tensor inside training loop
-            valid = torch.ones(x.size(0), 1)
+            valid = torch.ones(x.size(0), 1, self.seq_len)
             valid = valid.type_as(x)
 
             # adversarial loss is binary cross-entropy
+            # print(valid.size(), self.discriminator(self(z)).size())
             g_loss = self.adversarial_loss(self.discriminator(self(z)), valid)
-            tqdm_dict = {"g_loss": g_loss}
-            output = OrderedDict(
-                {"loss": g_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
-            )
-            return output
+            # tqdm_dict = {"g_loss": g_loss}
+            # output = OrderedDict(
+            #     {"loss": g_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+            # )
+            self.log("hp/valid_loss", g_loss)
+            return g_loss
 
         # train discriminator
         if optimizer_idx == 1:
@@ -449,13 +482,13 @@ class GAN(LightningModule):
             # samples
 
             # how well can it label as real?
-            valid = torch.ones(x.size(0), 1)
+            valid = torch.ones(x.size(0), 1, self.seq_len)
             valid = valid.type_as(x)
 
             real_loss = self.adversarial_loss(self.discriminator(x), valid)
 
             # how well can it label as fake?
-            fake = torch.zeros(x.size(0), 1)
+            fake = torch.zeros(x.size(0), 1, self.seq_len)
             fake = fake.type_as(x)
 
             fake_loss = self.adversarial_loss(
@@ -464,11 +497,12 @@ class GAN(LightningModule):
 
             # discriminator loss is the average of these
             d_loss = (real_loss + fake_loss) / 2
-            tqdm_dict = {"d_loss": d_loss}
-            output = OrderedDict(
-                {"loss": d_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
-            )
-            return output
+            # tqdm_dict = {"d_loss": d_loss}
+            # output = OrderedDict(
+            #     {"loss": d_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+            # )
+            self.log("d_loss", d_loss)
+            return d_loss
 
     def _check_hparams(self, hparams: Union[Dict, Namespace]):
         for hparam in self._required_hparams:
@@ -484,3 +518,57 @@ class GAN(LightningModule):
                     )
             else:
                 raise TypeError(f"Invalid type for hparams: {type(hparams)}.")
+
+    def get_builder(self, nb_samples: int) -> CollectionBuilder:
+        builder = CollectionBuilder(
+            [IdentifierBuilder(nb_samples, self.seq_len), TimestampBuilder()]
+        )
+        if "track_unwrapped" in self.hparams.features:
+            builder.append(LatLonBuilder(build_from="azgs"))
+        elif "x" in self.hparams.features:
+            builder.append(LatLonBuilder(build_from="xy", projection=EuroPP()))
+
+        return builder
+
+    @classmethod
+    def network_name(cls) -> str:
+        raise NotImplementedError()
+
+    @classmethod
+    def add_model_specific_args(
+        cls,
+        parent_parser: ArgumentParser,
+    ) -> Tuple[ArgumentParser, _ArgumentGroup]:
+        parser = parent_parser.add_argument_group(f"{cls.network_name()}")
+        parser.add_argument(
+            "--name",
+            dest="network_name",
+            default=f"{cls.network_name()}",
+            type=str,
+            help="network name",
+        )
+        parser.add_argument(
+            "--lr",
+            dest="learning_rate",
+            default=1e-3,
+            type=float,
+            help="learning rate",
+        )
+        parser.add_argument(
+            "--latent_dim",
+            dest="latent_dim",
+            type=int,
+            default=64,
+        )
+        parser.add_argument(
+            "--h_dims",
+            dest="h_dims",
+            nargs="+",
+            type=int,
+            default=[],
+        )
+        parser.add_argument(
+            "--dropout", dest="dropout", type=float, default=0.0
+        )
+
+        return parent_parser, parser

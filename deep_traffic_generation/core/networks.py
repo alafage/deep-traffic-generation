@@ -130,7 +130,7 @@ class ResidualBlock(nn.Module):
         kernel_size: int,
         dilation: int,
         dropout: float = 0.2,
-        out_activ: Optional[nn.Module] = None,
+        h_activ: Optional[nn.Module] = None,
         is_last: bool = False,
     ) -> None:
         super().__init__()
@@ -143,7 +143,7 @@ class ResidualBlock(nn.Module):
             kernel_size,
             dilation,
             dropout,
-            out_activ,
+            h_activ,
         )
 
         self.tmp_block2 = TemporalBlock(
@@ -152,7 +152,7 @@ class ResidualBlock(nn.Module):
             kernel_size,
             dilation,
             dropout,
-            out_activ if not is_last else None,  # deactivate last activation
+            h_activ if not is_last else None,  # deactivate last activation
         )
 
         # Optional convolution for matching in_channels and out_channels sizes
@@ -161,7 +161,7 @@ class ResidualBlock(nn.Module):
             if in_channels != out_channels
             else None
         )
-        self.out_activ = out_activ
+        self.out_activ = h_activ
         self.init_weights()
 
     def init_weights(self) -> None:
@@ -226,7 +226,7 @@ class TCN(nn.Module):
         h_dims: List[int],
         kernel_size: int,
         dilation_base: int,
-        activation: Optional[nn.Module] = None,
+        h_activ: Optional[nn.Module] = None,
         dropout: float = 0.2,
     ):
         super().__init__()
@@ -245,7 +245,7 @@ class TCN(nn.Module):
                 kernel_size,
                 dilation,
                 dropout,
-                activation,
+                h_activ,
                 is_last,
             )
             layers.append(layer)

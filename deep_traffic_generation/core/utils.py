@@ -64,7 +64,7 @@ def get_dataloaders(
     batch_size: int,
     test_batch_size: Optional[int],
     num_workers: int = 5,
-) -> Tuple[DataLoader, DataLoader, DataLoader]:
+) -> Tuple[DataLoader, Optional[DataLoader], Optional[DataLoader]]:
     train_size = int(len(dataset) * train_ratio)
     test_size = len(dataset) - train_size
     val_size = int(train_size * val_ratio)
@@ -81,14 +81,17 @@ def get_dataloaders(
         num_workers=num_workers,
     )
 
-    val_loader = DataLoader(
-        dataset=val_dataset,
-        batch_size=test_batch_size
-        if test_batch_size is not None
-        else len(val_dataset),
-        shuffle=True,
-        num_workers=num_workers,
-    )
+    if val_size > 0:
+        val_loader = DataLoader(
+            dataset=val_dataset,
+            batch_size=test_batch_size
+            if test_batch_size is not None
+            else len(val_dataset),
+            shuffle=True,
+            num_workers=num_workers,
+        )
+    else:
+        val_loader = None
 
     if test_size > 0:
         test_loader = DataLoader(
@@ -100,7 +103,7 @@ def get_dataloaders(
             num_workers=num_workers,
         )
     else:
-        test_loader = val_loader
+        test_loader = None
 
     return train_loader, val_loader, test_loader
 
@@ -283,7 +286,7 @@ def cli_main(
     # model
     # ------------
     model = cls(
-        input_dim=dataset.input_dim,
+        x_dim=dataset.input_dim,
         seq_len=dataset.seq_len,
         scaler=dataset.scaler,
         config=args,
@@ -293,6 +296,7 @@ def cli_main(
     # training
     # ------------
     checkpoint_callback = ModelCheckpoint(monitor="hp/valid_loss")
+    # checkpoint_callback = ModelCheckpoint()
     if args.early_stop:
         early_stopping = EarlyStopping("hp/valid_loss")
         trainer = Trainer.from_argparse_args(
@@ -304,12 +308,17 @@ def cli_main(
         trainer = Trainer.from_argparse_args(
             args, callbacks=[checkpoint_callback], logger=tb_logger
         )
-    trainer.fit(model, train_loader, val_loader)
+
+    if val_loader is not None:
+        trainer.fit(model, train_loader, val_loader)
+    else:
+        trainer.fit(model, train_loader)
 
     # ------------
     # testing
     # ------------
-    trainer.test(test_dataloaders=test_loader)
+    if test_loader is not None:
+        trainer.test(test_dataloaders=test_loader)
 
 
 def build_weights(size: int, builder: rv_continuous, **kwargs) -> np.ndarray:
