@@ -106,43 +106,43 @@ class TCAE(AE):
 
     def __init__(
         self,
-        input_dim: int,
+        x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(input_dim, seq_len, scaler, config)
-
-        # non-linear activations
-        h_activ: Optional[nn.Module] = None
+        super().__init__(x_dim, seq_len, scaler, config)
 
         self.example_input_array = torch.rand(
             (self.input_dim, self.seq_len)
         ).unsqueeze(0)
 
         self.encoder = TCEncoder(
-            input_dim=input_dim,
+            input_dim=x_dim,
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
             seq_len=self.seq_len,
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
-            h_activ=h_activ,
+            h_activ=nn.ReLU(),
             dropout=self.hparams.dropout,
         )
 
         self.decoder = TCDecoder(
             input_dim=self.hparams.encoding_dim,
-            out_dim=input_dim,
+            out_dim=x_dim,
             h_dims=self.hparams.h_dims[::-1],
             seq_len=self.seq_len,
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
-            h_activ=h_activ,
+            h_activ=nn.ReLU(),
             dropout=self.hparams.dropout,
         )
+
+        # non-linear activations
+        self.out_activ = nn.Tanh()
 
     def test_step(self, batch, batch_idx):
         x, _, info = batch

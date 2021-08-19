@@ -17,32 +17,31 @@ class LinearAE(AE):
 
     def __init__(
         self,
-        input_dim: int,
+        x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(input_dim, seq_len, scaler, config)
-
-        # FIXME: should be in config
-        self.h_activ: Optional[nn.Module] = None
+        super().__init__(x_dim, seq_len, scaler, config)
 
         self.example_input_array = torch.rand((1, self.input_dim))
 
         self.encoder = FCN(
-            input_dim=input_dim,
+            input_dim=x_dim,
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
-            h_activ=self.h_activ,
+            h_activ=nn.ReLU(),
             dropout=self.hparams.dropout,
         )
         self.decoder = FCN(
             input_dim=self.hparams.encoding_dim,
-            out_dim=input_dim,
+            out_dim=x_dim,
             h_dims=self.hparams.h_dims[::-1],
-            h_activ=self.h_activ,
+            h_activ=nn.ReLU(),
             dropout=self.hparams.dropout,
         )
+
+        self.out_activ = nn.Tanh()
 
     @classmethod
     def network_name(cls) -> str:

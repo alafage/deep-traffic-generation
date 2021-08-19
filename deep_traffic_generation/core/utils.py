@@ -236,11 +236,9 @@ def cli_main(
         type=int,
         default=None,
     )
-    parser.add_argument("--early_stop", dest="early_stop", action="store_true")
     parser.add_argument(
-        "--no_early_stop", dest="early_stop", action="store_false"
+        "--early_stop", dest="early_stop", type=int, default=None
     )
-    parser.set_defaults(early_stop=False)
     parser.add_argument(
         "--show_latent", dest="show_latent", action="store_true"
     )
@@ -297,8 +295,10 @@ def cli_main(
     # ------------
     checkpoint_callback = ModelCheckpoint(monitor="hp/valid_loss")
     # checkpoint_callback = ModelCheckpoint()
-    if args.early_stop:
-        early_stopping = EarlyStopping("hp/valid_loss")
+    if args.early_stop is not None:
+        early_stopping = EarlyStopping(
+            "hp/valid_loss", patience=args.early_stop
+        )
         trainer = Trainer.from_argparse_args(
             args,
             callbacks=[checkpoint_callback, early_stopping],

@@ -161,7 +161,7 @@ class ResidualBlock(nn.Module):
             if in_channels != out_channels
             else None
         )
-        self.out_activ = h_activ
+        # self.out_activ = h_activ
         self.init_weights()
 
     def init_weights(self) -> None:
@@ -169,18 +169,10 @@ class ResidualBlock(nn.Module):
             self.downsample.weight.data.normal_(0, 0.01)
 
     def forward(self, x):
-        # print(f"x: {x.size()}")
         y = self.tmp_block1(x)
-        # print(f"y: {y.size()}")
         y = self.tmp_block2(y)
-        # print(f"y: {y.size()}")
         r = x if self.downsample is None else self.downsample(x)
-        # print(f"r: {r.size()}")
-        return (
-            self.out_activ(y + r)
-            if not self.is_last and self.out_activ is not None
-            else (y + r)
-        )
+        return y + r
 
 
 class TCN(nn.Module):

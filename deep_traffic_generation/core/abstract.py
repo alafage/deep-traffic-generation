@@ -82,6 +82,7 @@ class AE(LightningModule):
 
         self.encoder: nn.Module
         self.decoder: nn.Module
+        self.out_activ: nn.Module
 
     def configure_optimizers(self) -> dict:
         # optimizer
@@ -107,7 +108,7 @@ class AE(LightningModule):
 
     def forward(self, x):
         z = self.encoder(x)
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
         return z, x_hat
 
     def training_step(self, batch, batch_idx):

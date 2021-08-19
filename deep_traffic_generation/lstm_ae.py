@@ -77,25 +77,14 @@ class Decoder(nn.Module):
 class LSTMAE(AE):
     """LSTM Autoencoder"""
 
-    _required_hparams = [
-        "learning_rate",
-        "step_size",
-        "gamma",
-        "encoding_dim",
-        "h_dims",
-    ]
-
     def __init__(
         self,
-        input_dim: int,
+        x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(input_dim, seq_len, scaler, config)
-
-        # FIXME: should be in config
-        # self.h_activ: Optional[nn.Module] = None
+        super().__init__(x_dim, seq_len, scaler, config)
 
         self.example_input_array = torch.rand(
             (self.seq_len, self.input_dim)
@@ -119,6 +108,8 @@ class LSTMAE(AE):
             num_layers=1,
             batch_first=True,
         )
+
+        self.out_activ = nn.Tanh()
 
     @classmethod
     def network_name(cls) -> str:
