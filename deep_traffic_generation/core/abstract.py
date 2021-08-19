@@ -114,7 +114,7 @@ class AE(LightningModule):
     def training_step(self, batch, batch_idx):
         x, _, _ = batch
         z = self.encoder(x)
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
         loss = F.mse_loss(x_hat, x)
         self.log("train_loss", loss)
         return loss
@@ -122,14 +122,14 @@ class AE(LightningModule):
     def validation_step(self, batch, batch_idx):
         x, _, _ = batch
         z = self.encoder(x)
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
         loss = F.mse_loss(x_hat, x)
         self.log("hp/valid_loss", loss)
 
     def test_step(self, batch, batch_idx):
         x, _, info = batch
         z = self.encoder(x)
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
         loss = F.mse_loss(x_hat, x)
         self.log("hp/test_loss", loss)
         return x, x_hat, info
@@ -269,7 +269,7 @@ class VAE(AE):
         std = torch.exp(log_var / 2)
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
         return z, x_hat
 
     def training_step(self, batch, batch_idx):
@@ -283,7 +283,7 @@ class VAE(AE):
         z = q.rsample()
 
         # decode z
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
 
         # reconstruction loss
         recon_loss = self.gaussian_likelihood(x_hat, x)
@@ -321,7 +321,7 @@ class VAE(AE):
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
 
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
 
         loss = F.mse_loss(x_hat, x)
 
@@ -335,7 +335,7 @@ class VAE(AE):
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
 
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
 
         loss = F.mse_loss(x_hat, x)
 
