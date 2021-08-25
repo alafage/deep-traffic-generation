@@ -13,6 +13,14 @@ from deep_traffic_generation.core.utils import cli_main
 
 
 # fmt: on
+class LinearAct(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x
+
+
 class TCEncoder(nn.Module):
     def __init__(
         self,
@@ -125,7 +133,7 @@ class TCAE(AE):
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
-            h_activ=nn.ReLU(),
+            # h_activ=nn.ReLU(),
             dropout=self.hparams.dropout,
         )
 
@@ -137,17 +145,17 @@ class TCAE(AE):
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
-            h_activ=nn.ReLU(),
+            # h_activ=nn.ReLU(),
             dropout=self.hparams.dropout,
         )
 
         # non-linear activations
-        self.out_activ = nn.Tanh()
+        self.out_activ = LinearAct()  # nn.Tanh()
 
     def test_step(self, batch, batch_idx):
         x, _, info = batch
         z = self.encoder(x)
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
         loss = F.mse_loss(x_hat, x)
         self.log("hp/test_loss", loss)
         return torch.transpose(x, 1, 2), torch.transpose(x_hat, 1, 2), info

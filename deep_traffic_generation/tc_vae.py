@@ -14,6 +14,14 @@ from deep_traffic_generation.core.utils import cli_main
 
 
 # fmt: on
+class LinearAct(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x
+
+
 class TCEncoder(nn.Module):
     def __init__(
         self,
@@ -123,9 +131,6 @@ class TCVAE(VAE):
     ) -> None:
         super().__init__(x_dim, seq_len, scaler, config)
 
-        # non-linear activations
-        h_activ: Optional[nn.Module] = None
-
         self.example_input_array = torch.rand(
             (self.input_dim, self.seq_len)
         ).unsqueeze(0)
@@ -138,7 +143,7 @@ class TCVAE(VAE):
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
-            h_activ=h_activ,
+            # h_activ=nn.ReLU(),
             dropout=self.hparams.dropout,
         )
 
@@ -150,9 +155,12 @@ class TCVAE(VAE):
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
-            h_activ=h_activ,
+            # h_activ=nn.ReLU(),
             dropout=self.hparams.dropout,
         )
+
+        # non-linear activations
+        self.out_activ: Optional[nn.Module] = LinearAct()
 
     def test_step(self, batch, batch_idx):
         x, _, info = batch
@@ -162,7 +170,7 @@ class TCVAE(VAE):
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
 
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z))
 
         loss = F.mse_loss(x_hat, x)
 

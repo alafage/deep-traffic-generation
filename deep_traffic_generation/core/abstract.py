@@ -287,7 +287,7 @@ class VAE(AE):
 
         # reconstruction loss
         recon_loss = self.gaussian_likelihood(x_hat, x)
-        # recon_loss = F.mse_loss(x, x_hat)
+        # recon_loss = -F.mse_loss(x, x_hat, reduce=False).sum(dim=(1, 2))
 
         # kullback-leibler divergence
         c_max = torch.Tensor([self.hparams.c_max])

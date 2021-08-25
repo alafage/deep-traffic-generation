@@ -19,7 +19,7 @@ deterministic: false
 dilation_base: 2
 distributed_backend: null
 dropout: 0.0
-early_stop: false
+early_stop: 10
 encoding_dim: 32
 fast_dev_run: false
 features:
@@ -51,7 +51,7 @@ log_gpu_memory: null
 logger: true
 lr_gamma: 1.0
 lr_step_size: 100
-max_epochs: 3000
+max_epochs: null
 max_steps: null
 max_time: null
 min_epochs: null
