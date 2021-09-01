@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from traffic.data import navaids
 
 from deep_traffic_generation.core import TCN, VAE
 from deep_traffic_generation.core.datasets import TrafficDataset
@@ -16,6 +15,14 @@ from deep_traffic_generation.core.utils import cli_main
 
 
 # fmt: on
+class LinearAct(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x
+
+
 class TCEncoder(nn.Module):
     def __init__(
         self,
@@ -117,12 +124,16 @@ class TCVAENPA(VAE):
 
     def __init__(
         self,
-        input_dim: int,
+        x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
+        navpts: Optional[torch.Tensor],
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(input_dim, seq_len, scaler, config)
+
+        assert navpts is not None
+
+        super().__init__(x_dim, seq_len, scaler, navpts, config)
 
         # non-linear activations
         h_activ: Optional[nn.Module] = None
@@ -132,7 +143,7 @@ class TCVAENPA(VAE):
         ).unsqueeze(0)
 
         self.encoder = TCEncoder(
-            input_dim=input_dim,
+            input_dim=x_dim,
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
             seq_len=self.seq_len,
@@ -145,7 +156,7 @@ class TCVAENPA(VAE):
 
         self.decoder = TCDecoder(
             input_dim=self.hparams.encoding_dim,
-            out_dim=input_dim,
+            out_dim=x_dim,
             h_dims=self.hparams.h_dims[::-1],
             seq_len=self.seq_len,
             kernel_size=self.hparams.kernel_size,
@@ -154,6 +165,9 @@ class TCVAENPA(VAE):
             h_activ=h_activ,
             dropout=self.hparams.dropout,
         )
+
+        # non-linear activations
+        self.out_activ: Optional[nn.Module] = LinearAct()
 
     def training_step(self, batch, batch_idx):
         x, labels, _ = batch
@@ -182,30 +196,29 @@ class TCVAENPA(VAE):
         )
         kl = self.kl_divergence(z, loc, std)
 
+        # navigational point alignment loss
+        npa = npa_loss(x_hat, self.navpts.to(self.device), reduction="none")
+
         # elbo with beta hyperparameter:
         #   Higher values enforce orthogonality between latent representation.
-        elbo = self.hparams.gamma * (kl - C).abs() - recon_loss
+        elbo = (
+            self.hparams.gamma * (kl - C).abs()
+            - recon_loss
+            + self.hparams.align_coef * npa
+        )
         elbo = elbo.mean()
 
-        # navigational point alignment loss
-        navids = set(
-            [navid for navids in labels for navid in navids.split(",")]
-        )
-        navpts = torch.Tensor(
-            [[navaids[navid].lat, navaids[navid].lon] for navid in navids]
-        ).to(self.device)
-
-        npa = npa_loss(x_hat, navpts)
+        # print(elbo)
 
         self.log_dict(
             {
                 "train_loss": elbo,
                 "kl_loss": kl.mean(),
                 "recon_loss": recon_loss.mean(),
-                "npa": npa,
+                "npa": npa.mean(),
             }
         )
-        return elbo + self.hparams.align_coef * npa
+        return elbo
 
     def test_step(self, batch, batch_idx):
         x, _, info = batch

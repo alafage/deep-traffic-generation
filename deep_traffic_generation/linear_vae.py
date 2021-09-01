@@ -47,9 +47,10 @@ class LinearVAE(VAE):
         input_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
+        navpts: Optional[torch.Tensor],
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(input_dim, seq_len, scaler, config)
+        super().__init__(input_dim, seq_len, scaler, navpts, config)
 
         # FIXME: should be in config
         self.h_activ: Optional[nn.Module] = None

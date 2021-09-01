@@ -69,6 +69,7 @@ class AE(LightningModule):
         x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
+        navpts: Optional[torch.Tensor],
         config: Union[Dict, Namespace],
     ) -> None:
         super().__init__()
@@ -78,6 +79,7 @@ class AE(LightningModule):
         self.input_dim = x_dim
         self.seq_len = seq_len
         self.scaler = scaler
+        self.navpts = navpts
         self.save_hyperparameters(config)
 
         self.encoder: nn.Module
@@ -258,9 +260,10 @@ class VAE(AE):
         x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
+        navpts: Optional[torch.Tensor],
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(x_dim, seq_len, scaler, config)
+        super().__init__(x_dim, seq_len, scaler, navpts, config)
 
         self.scale = nn.Parameter(torch.Tensor([self.hparams.scale]))
 

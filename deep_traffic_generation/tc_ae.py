@@ -117,9 +117,10 @@ class TCAE(AE):
         x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
+        navpts: Optional[torch.Tensor],
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(x_dim, seq_len, scaler, config)
+        super().__init__(x_dim, seq_len, scaler, navpts, config)
 
         self.example_input_array = torch.rand(
             (self.input_dim, self.seq_len)
@@ -151,6 +152,17 @@ class TCAE(AE):
 
         # non-linear activations
         self.out_activ = LinearAct()  # nn.Tanh()
+
+    # Training with Soft Dynamic Time Warping
+    # def training_step(self, batch, batch_idx):
+    #     x, _, _ = batch
+    #     z = self.encoder(x)
+    #     x_hat = self.out_activ(self.decoder(z))
+    #     x_T = torch.transpose(x, 1, 2)
+    #     x_hat_T = torch.transpose(x_hat, 1, 2)
+    #     loss = sdtw_loss(x_T, x_hat_T)
+    #     self.log("train_loss", loss)
+    #     return loss
 
     def test_step(self, batch, batch_idx):
         x, _, info = batch

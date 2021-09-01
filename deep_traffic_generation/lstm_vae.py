@@ -91,12 +91,13 @@ class LSTMVAE(VAE):
 
     def __init__(
         self,
-        input_dim: int,
+        x_dim: int,
         seq_len: int,
         scaler: Optional[TransformerProtocol],
+        navpts: Optional[torch.Tensor],
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(input_dim, seq_len, scaler, config)
+        super().__init__(x_dim, seq_len, scaler, navpts, config)
 
         self.scale = nn.Parameter(torch.Tensor([1.0]))
 

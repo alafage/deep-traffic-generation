@@ -66,6 +66,7 @@ class RNN(nn.Module):
                 hidden_size=layer_dims[index + 1],
                 num_layers=num_layers,
                 batch_first=batch_first,
+                # bidirectional=True,
             )
             self.layers.append(layer)
 

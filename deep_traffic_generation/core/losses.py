@@ -2,6 +2,19 @@ import math
 
 import torch
 
+from .packages.soft_dtw_cuda import SoftDTW
+
+
+def reduce(loss: torch.Tensor, reduction: str) -> torch.Tensor:
+    if reduction == "none":
+        return loss
+    elif reduction == "mean":
+        return torch.mean(loss)
+    elif reduction == "sum":
+        return torch.sum(loss)
+    else:
+        raise ValueError(f"Invalid value {reduction} for reduction attribute.")
+
 
 def npa_loss(
     input: torch.Tensor, navpoints: torch.Tensor, reduction: str = "mean"
@@ -35,18 +48,30 @@ def npa_loss(
     # loss: (N)
     loss = torch.sum(mins, dim=1)
 
-    if reduction == "none":
-        return loss
-    elif reduction == "mean":
-        return torch.mean(loss)
-    elif reduction == "sum":
-        return torch.sum(loss)
-    else:
-        raise ValueError(f"Invalid value {reduction} for reduction attribute.")
+    return reduce(loss, reduction)
 
 
-def custom_loss():
-    ...
+def sdtw_loss(
+    input: torch.Tensor, target: torch.Tensor, reduction: str = "mean"
+) -> torch.Tensor:
+    """The Soft Dynamic Time Warping loss
+
+    Parameters:
+    input: torch.Tensor
+        Input tensor should be a 3D Tensor (N, L, H).
+    target: torch.Tensor
+        Target tensor should be a 3D Tensor (N, L, H).
+    reduction: string, optional
+        Specifies the reduction to apply to the output: `'none'` | `'mean'` |
+        `'sum'`. `'none'`: no reduction will be applied, `'mean'`: the sum of
+        the output will be divided by the number of the elements in the
+        output, `'sum'`: the output will be summed. Default: `'mean'`
+    """
+    use_cuda = False if str(input.device) == "cpu" else True
+    sdtw = SoftDTW(use_cuda, gamma=0.1)
+    loss = sdtw(input, target)
+
+    return reduce(loss, reduction)
 
 
 if "__main__" == __name__:

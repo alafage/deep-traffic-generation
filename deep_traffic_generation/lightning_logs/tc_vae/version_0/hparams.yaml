@@ -58,6 +58,7 @@ min_epochs: null
 min_steps: null
 move_metrics_to_cpu: false
 multiple_trainloader_mode: max_size_cycle
+navpts: false
 network_name: tc_vae
 num_nodes: 1
 num_processes: 1

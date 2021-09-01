@@ -190,7 +190,11 @@ def init_hidden(
 
 
 def cli_main(
-    cls: LightningModule, dataset_cls: Dataset, data_mode: str, seed: int = 42
+    cls: LightningModule,
+    dataset_cls: Dataset,
+    data_shape: str,
+    seed: int = 42,
+    **kwargs,
 ) -> None:
     pl.seed_everything(seed, workers=True)
     # ------------
@@ -221,6 +225,9 @@ def cli_main(
         type=str,
         default=None,
     )
+    parser.add_argument("--navpts", dest="navpts", action="store_true")
+    parser.add_argument("--no_navpts", dest="navpts", action="store_false")
+    parser.set_defaults(navpts=False)
     parser.add_argument(
         "--train_ratio", dest="train_ratio", type=float, default=0.8
     )
@@ -253,13 +260,14 @@ def cli_main(
     # ------------
     # data
     # ------------
-    dataset = dataset_cls(
+    dataset = dataset_cls.from_file(
         args.data_path,
         features=args.features,
         init_features=args.init_features,
         scaler=MinMaxScaler(feature_range=(-1, 1)),
         label=args.label,
-        mode=data_mode,
+        navpts=args.navpts,
+        shape=data_shape,
     )
 
     train_loader, val_loader, test_loader = get_dataloaders(
@@ -287,6 +295,7 @@ def cli_main(
         x_dim=dataset.input_dim,
         seq_len=dataset.seq_len,
         scaler=dataset.scaler,
+        navpts=dataset.navpts,
         config=args,
     )
 
