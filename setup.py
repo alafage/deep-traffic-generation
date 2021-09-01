@@ -8,7 +8,6 @@ setup(
     description="Description",
     author="Adrien Lafage",
     author_email="",
-    # REPLACE WITH YOUR OWN GITHUB PROJECT LINK
     url="https://github.com/alafage",
     install_requires=[
         "pytorch-lightning",
