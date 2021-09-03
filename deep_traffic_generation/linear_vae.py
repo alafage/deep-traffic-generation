@@ -6,8 +6,7 @@ import torch
 import torch.nn as nn
 
 from deep_traffic_generation.core import FCN, VAE
-from deep_traffic_generation.core.datasets import TrafficDataset
-from deep_traffic_generation.core.protocols import TransformerProtocol
+from deep_traffic_generation.core.datasets import DatasetParams, TrafficDataset
 from deep_traffic_generation.core.utils import cli_main
 
 
@@ -34,8 +33,8 @@ class _Encoder(nn.Module):
         self.z_loc = nn.Linear(h_dims[-1], out_dim)
         self.z_log_var = nn.Linear(h_dims[-1], out_dim)
 
-    def forward(self, x):
-        z = self.encoder(x)
+    def forward(self, x, lengths):
+        z = self.encoder(x, lengths)
         return self.z_loc(z), self.z_log_var(z)
 
 
@@ -44,22 +43,18 @@ class LinearVAE(VAE):
 
     def __init__(
         self,
-        input_dim: int,
-        seq_len: int,
-        scaler: Optional[TransformerProtocol],
-        navpts: Optional[torch.Tensor],
+        dataset_params: DatasetParams,
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(input_dim, seq_len, scaler, navpts, config)
+        super().__init__(dataset_params, config)
 
-        # FIXME: should be in config
         self.h_activ: Optional[nn.Module] = None
 
-        self.example_input_array = torch.rand((1, self.input_dim))
+        # self.example_input_array = torch.rand((1, self.input_dim))
 
         # encoder
         self.encoder = _Encoder(
-            input_dim=input_dim,
+            input_dim=self.dataset_params["input_dim"],
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
             h_activ=self.h_activ,
@@ -68,13 +63,15 @@ class LinearVAE(VAE):
         # decoder
         self.decoder = FCN(
             input_dim=self.hparams.encoding_dim,
-            out_dim=self.input_dim,
+            out_dim=self.dataset_params["input_dim"],
             h_dims=self.hparams.h_dims[::-1],
             h_activ=self.h_activ,
             dropout=self.hparams.dropout,
         )
 
         self.scale = nn.Parameter(torch.Tensor([1.0]))
+
+        self.out_activ = nn.Tanh()
 
     @classmethod
     def network_name(cls) -> str:

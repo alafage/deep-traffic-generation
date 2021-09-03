@@ -9,9 +9,8 @@ import torch
 import torch.nn as nn
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
-from pytorch_lightning import Trainer
+from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning.loggers import TensorBoardLogger
 from scipy.stats._distn_infrastructure import rv_continuous
 from sklearn.preprocessing import MinMaxScaler
@@ -20,6 +19,8 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.data.dataset import Dataset
 from traffic.core import Traffic
 from traffic.core.projection import EuroPP
+
+from deep_traffic_generation.core.datasets import Infos, TrafficDataset
 
 from .protocols import BuilderProtocol
 
@@ -119,7 +120,7 @@ def init_dataframe(
     nb_samples = data.shape[0]
     dense = dense.reshape(nb_samples, -1, len(features))
     nb_obs = dense.shape[1]
-
+    print(dense.shape)
     # handle sparce features (init_features)
     if len(init_features) > 0:
         sparce = data[:, :len(init_features)]
@@ -134,7 +135,7 @@ def init_dataframe(
     df = pd.DataFrame(
         {feature: dense[:, :, i].ravel() for i, feature in enumerate(features)}
     )
-
+    print(df)
     return df
 
 
@@ -145,9 +146,11 @@ def traffic_from_data(
     init_features: List[str] = [],
     builder: Optional[BuilderProtocol] = None,
 ) -> Traffic:
-
+    print(features)
+    print(init_features)
     df = init_dataframe(data, features, init_features)
 
+    print(len(df))
     if builder is not None:
         df = builder(df)
 
@@ -191,10 +194,9 @@ def init_hidden(
 
 def cli_main(
     cls: LightningModule,
-    dataset_cls: Dataset,
+    dataset_cls: TrafficDataset,
     data_shape: str,
     seed: int = 42,
-    **kwargs,
 ) -> None:
     pl.seed_everything(seed, workers=True)
     # ------------
@@ -214,10 +216,16 @@ def cli_main(
         default=["latitude", "longitude", "altitude", "timedelta"],
     )
     parser.add_argument(
-        "--init_features",
-        dest="init_features",
+        "--info_features",
+        dest="info_features",
         nargs="+",
         default=[],
+    )
+    parser.add_argument(
+        "--info_index",
+        dest="info_index",
+        type=int,
+        default=None,
     )
     parser.add_argument(
         "--label",
@@ -263,11 +271,9 @@ def cli_main(
     dataset = dataset_cls.from_file(
         args.data_path,
         features=args.features,
-        init_features=args.init_features,
-        scaler=MinMaxScaler(feature_range=(-1, 1)),
-        label=args.label,
-        navpts=args.navpts,
         shape=data_shape,
+        scaler=MinMaxScaler(feature_range=(-1, 1)),
+        info_params=Infos(features=args.info_features, index=args.info_index),
     )
 
     train_loader, val_loader, test_loader = get_dataloaders(
@@ -292,10 +298,7 @@ def cli_main(
     # model
     # ------------
     model = cls(
-        x_dim=dataset.input_dim,
-        seq_len=dataset.seq_len,
-        scaler=dataset.scaler,
-        navpts=dataset.navpts,
+        dataset_params=dataset.parameters,
         config=args,
     )
 
@@ -382,3 +385,7 @@ def plot_clusters(traffic: Traffic, cluster_label: str = "cluster") -> Figure:
                     ax, color="red", alpha=1
                 )
     return fig
+
+
+def unpad_sequence(padded: torch.Tensor, lengths: torch.Tensor) -> List:
+    return [padded[i][: lengths[i]] for i in range(len(padded))]

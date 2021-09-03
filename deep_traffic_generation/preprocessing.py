@@ -33,12 +33,18 @@ def cli_main() -> None:
         type=str,
         default="./data/traffic.pkl",
     )
+    parser.add_argument(
+        "--dp",
+        dest="douglas_peucker_coeff",
+        type=float,
+        default=None,
+    )
     args = parser.parse_args()
 
     # ------------
     # preprocessing
     # ------------
-    t = (
+    t: Traffic = (
         landing_zurich_2019.query("track==track")
         .assign_id()
         .resample(args.n_samples)
@@ -47,6 +53,10 @@ def cli_main() -> None:
     )
 
     t = t.compute_xy(projection=EuroPP())
+
+    if args.douglas_peucker_coeff is not None:
+        print("Simplification...")
+        t = t.simplify(tolerance=1e3).eval(desc="")
 
     t = Traffic.from_flights(
         flight.assign(

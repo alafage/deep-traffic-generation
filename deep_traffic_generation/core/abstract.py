@@ -10,6 +10,8 @@ from pytorch_lightning.utilities.types import EPOCH_OUTPUT
 from torch.nn import functional as F
 from traffic.core.projection import EuroPP
 
+from deep_traffic_generation.core.datasets import DatasetParams
+
 from .builders import (
     CollectionBuilder, IdentifierBuilder, LatLonBuilder, TimestampBuilder
 )
@@ -19,165 +21,26 @@ from .utils import plot_traffic, traffic_from_data
 
 # fmt: on
 class Abstract(LightningModule):
-    """TODO: Abstract class for deep models"""
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    @classmethod
-    def network_name(cls) -> str:
-        raise NotImplementedError()
-
-    @classmethod
-    def add_model_specific_args(
-        cls,
-        parent_parser: ArgumentParser,
-    ) -> Tuple[ArgumentParser, _ArgumentGroup]:
-        parser = parent_parser.add_argument_group(f"{cls.network_name()}")
-        parser.add_argument(
-            "--name",
-            dest="network_name",
-            default=f"{cls.network_name()}",
-            type=str,
-            help="network name",
-        )
-        parser.add_argument(
-            "--lr",
-            dest="learning_rate",
-            default=1e-3,
-            type=float,
-            help="learning rate",
-        )
-
-        return parent_parser, parser
-
-
-class AE(LightningModule):
-    """Abstract class for Autoencoder"""
+    """Abstract class for deep models"""
 
     _required_hparams = [
-        "learning_rate",
+        "lr",
         "lr_step_size",
         "lr_gamma",
-        "encoding_dim",
-        "h_dims",
         "dropout",
     ]
 
     def __init__(
-        self,
-        x_dim: int,
-        seq_len: int,
-        scaler: Optional[TransformerProtocol],
-        navpts: Optional[torch.Tensor],
-        config: Union[Dict, Namespace],
+        self, dataset_params: DatasetParams, config: Union[Dict, Namespace]
     ) -> None:
         super().__init__()
 
         self._check_hparams(config)
-
-        self.input_dim = x_dim
-        self.seq_len = seq_len
-        self.scaler = scaler
-        self.navpts = navpts
         self.save_hyperparameters(config)
 
-        self.encoder: nn.Module
-        self.decoder: nn.Module
-        self.out_activ: nn.Module
+        self.dataset_params = dataset_params
 
-    def configure_optimizers(self) -> dict:
-        # optimizer
-        optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.hparams.learning_rate
-        )
-        # learning rate scheduler
-        scheduler = torch.optim.lr_scheduler.StepLR(
-            optimizer,
-            step_size=self.hparams.lr_step_size,
-            gamma=self.hparams.lr_gamma,
-        )
-
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-        }
-
-    def on_train_start(self) -> None:
-        self.logger.log_hyperparams(
-            self.hparams, {"hp/valid_loss": 1, "hp/test_loss": 1}
-        )
-
-    def forward(self, x):
-        z = self.encoder(x)
-        x_hat = self.out_activ(self.decoder(z))
-        return z, x_hat
-
-    def training_step(self, batch, batch_idx):
-        x, _, _ = batch
-        z = self.encoder(x)
-        x_hat = self.out_activ(self.decoder(z))
-        loss = F.mse_loss(x_hat, x)
-        self.log("train_loss", loss)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        x, _, _ = batch
-        z = self.encoder(x)
-        x_hat = self.out_activ(self.decoder(z))
-        loss = F.mse_loss(x_hat, x)
-        self.log("hp/valid_loss", loss)
-
-    def test_step(self, batch, batch_idx):
-        x, _, info = batch
-        z = self.encoder(x)
-        x_hat = self.out_activ(self.decoder(z))
-        loss = F.mse_loss(x_hat, x)
-        self.log("hp/test_loss", loss)
-        return x, x_hat, info
-
-    def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-        """FIXME: too messy."""
-        idx = 0
-        original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
-        reconstructed = outputs[0][1][idx].unsqueeze(0).cpu().numpy()
-        info = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
-        data = np.concatenate((original, reconstructed), axis=0)
-        data = data.reshape((data.shape[0], -1))
-        # unscale the data
-        if self.scaler is not None:
-            data = self.scaler.inverse_transform(data)
-        # add info if needed (init_features)
-        if len(self.hparams.init_features) > 0:
-            info = np.repeat(info, data.shape[0], axis=0)
-            data = np.concatenate((info, data), axis=1)
-        # get builder
-        builder = self.get_builder(nb_samples=2)
-        features = [
-            "track" if "track" in f else f for f in self.hparams.features
-        ]
-        # build traffic
-        traffic = traffic_from_data(
-            data,
-            features,
-            self.hparams.init_features,
-            builder=builder,
-        )
-        # generate plot then send it to logger
-        self.logger.experiment.add_figure(
-            "original vs reconstructed", plot_traffic(traffic)
-        )
-
-    def get_builder(self, nb_samples: int) -> CollectionBuilder:
-        builder = CollectionBuilder(
-            [IdentifierBuilder(nb_samples, self.seq_len), TimestampBuilder()]
-        )
-        if "track_unwrapped" in self.hparams.features:
-            builder.append(LatLonBuilder(build_from="azgs"))
-        elif "x" in self.hparams.features:
-            builder.append(LatLonBuilder(build_from="xy", projection=EuroPP()))
-
-        return builder
+        # self.criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
     @classmethod
     def network_name(cls) -> str:
@@ -198,7 +61,7 @@ class AE(LightningModule):
         )
         parser.add_argument(
             "--lr",
-            dest="learning_rate",
+            dest="lr",
             default=1e-3,
             type=float,
             help="learning rate",
@@ -218,23 +81,24 @@ class AE(LightningModule):
             help="multiplicative factor of learning rate decay",
         )
         parser.add_argument(
-            "--encoding_dim",
-            dest="encoding_dim",
-            type=int,
-            default=64,
-        )
-        parser.add_argument(
-            "--h_dims",
-            dest="h_dims",
-            nargs="+",
-            type=int,
-            default=[],
-        )
-        parser.add_argument(
             "--dropout", dest="dropout", type=float, default=0.0
         )
 
         return parent_parser, parser
+
+    def get_builder(self, nb_samples: int, length) -> CollectionBuilder:
+        builder = CollectionBuilder(
+            [
+                IdentifierBuilder(nb_samples, length),
+                TimestampBuilder(),
+            ]
+        )
+        if "track_unwrapped" in self.dataset_params["features"]:
+            builder.append(LatLonBuilder(build_from="azgs"))
+        elif "x" in self.dataset_params["features"]:
+            builder.append(LatLonBuilder(build_from="xy", projection=EuroPP()))
+
+        return builder
 
     def _check_hparams(self, hparams: Union[Dict, Namespace]):
         for hparam in self._required_hparams:
@@ -252,41 +116,167 @@ class AE(LightningModule):
                 raise TypeError(f"Invalid type for hparams: {type(hparams)}.")
 
 
+class AE(Abstract):
+    """Abstract class for Autoencoders"""
+
+    _required_hparams = Abstract._required_hparams + [
+        "encoding_dim",
+        "h_dims",
+    ]
+
+    def __init__(
+        self, dataset_params: DatasetParams, config: Union[Dict, Namespace]
+    ) -> None:
+        super().__init__(dataset_params, config)
+
+        self.encoder: nn.Module
+        self.decoder: nn.Module
+        self.out_activ: nn.Module
+
+    def configure_optimizers(self) -> dict:
+        # optimizer
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        # learning rate scheduler
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer,
+            step_size=self.hparams.lr_step_size,
+            gamma=self.hparams.lr_gamma,
+        )
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": scheduler,
+        }
+
+    def on_train_start(self) -> None:
+        self.logger.log_hyperparams(
+            self.hparams, {"hp/valid_loss": 1, "hp/test_loss": 1}
+        )
+
+    def forward(self, x, lengths):
+        z = self.encoder(x, lengths)
+        x_hat = self.out_activ(self.decoder(z, lengths))
+        return z, x_hat
+
+    def training_step(self, batch, batch_idx):
+        x, l, _ = batch
+        _, x_hat = self.forward(x, l)
+        loss = F.mse_loss(x_hat, x)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, l, _ = batch
+        _, x_hat = self.forward(x, l)
+        loss = F.mse_loss(x_hat, x)
+        self.log("hp/valid_loss", loss)
+
+    def test_step(self, batch, batch_idx):
+        x, l, info = batch
+        _, x_hat = self.forward(x, l)
+        loss = F.mse_loss(x_hat, x)
+        self.log("hp/test_loss", loss)
+        return x, l, x_hat, info
+
+    def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
+        """FIXME: too messy."""
+        idx = 0
+        original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
+        length = outputs[0][1][idx].cpu().item()
+        reconstruct = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
+        data = np.concatenate((original, reconstruct), axis=0)
+        # print(data.shape)
+        data = data.reshape((2, -1))
+        # print(data.shape)
+        # remove padding
+        data = data[:, : length * len(self.dataset_params["features"])]
+        # print(data.shape)
+        # reshape for unscaling
+        data = data.reshape((-1, len(self.dataset_params["features"])))
+        # print(data.shape)
+        # unscale the data
+        if self.dataset_params["scaler"] is not None:
+            data = self.dataset_params["scaler"].inverse_transform(data)
+
+        data = data.reshape((2, -1))
+        # print(data.shape)
+        # add info if needed (init_features)
+        info_len = len(self.dataset_params["info_params"]["features"])
+        if info_len > 0:
+            info = outputs[0][3][idx].unsqueeze(0).cpu().numpy()
+            info = np.repeat(info, data.shape[0], axis=0)
+            data = np.concatenate((info, data), axis=1)
+        # get builder
+        builder = self.get_builder(
+            nb_samples=2,
+            length=length + info_len,
+        )
+        features = [
+            "track" if "track" in f else f
+            for f in self.dataset_params["features"]
+        ]
+        # print(data)
+        # build traffic
+        traffic = traffic_from_data(
+            data,
+            features,
+            self.dataset_params["info_params"]["features"],
+            builder=builder,
+        )
+        # generate plot then send it to logger
+        self.logger.experiment.add_figure(
+            "original vs reconstructed", plot_traffic(traffic)
+        )
+
+    @classmethod
+    def add_model_specific_args(
+        cls,
+        parent_parser: ArgumentParser,
+    ) -> Tuple[ArgumentParser, _ArgumentGroup]:
+        _, parser = super().add_model_specific_args(parent_parser)
+        parser.add_argument(
+            "--encoding_dim",
+            dest="encoding_dim",
+            type=int,
+            default=64,
+        )
+        parser.add_argument(
+            "--h_dims",
+            dest="h_dims",
+            nargs="+",
+            type=int,
+            default=[],
+        )
+
+        return parent_parser, parser
+
+
 class VAE(AE):
     """Abstract class for Variational Autoencoder"""
 
     def __init__(
         self,
-        x_dim: int,
-        seq_len: int,
-        scaler: Optional[TransformerProtocol],
-        navpts: Optional[torch.Tensor],
+        dataset_params: DatasetParams,
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(x_dim, seq_len, scaler, navpts, config)
+        super().__init__(dataset_params, config)
 
         self.scale = nn.Parameter(torch.Tensor([self.hparams.scale]))
 
-    def forward(self, x):
-        loc, log_var = self.encoder(x)
-        std = torch.exp(log_var / 2)
-        q = torch.distributions.Normal(loc, std)
-        z = q.rsample()
-        x_hat = self.out_activ(self.decoder(z))
-        return z, x_hat
-
-    def training_step(self, batch, batch_idx):
-        x, _, _ = batch
+    def forward(self, x, lengths):
         # encode x to get the location and log variance parameters
-        loc, log_var = self.encoder(x)
-
+        loc, log_var = self.encoder(x, lengths)
         # sample z from q(z|x)
         std = torch.exp(log_var / 2)
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
-
         # decode z
-        x_hat = self.out_activ(self.decoder(z))
+        x_hat = self.out_activ(self.decoder(z, lengths))
+        return z, (loc, std), x_hat
+
+    def training_step(self, batch, batch_idx):
+        x, l, _ = batch
+        z, (loc, std), x_hat = self.forward(x, l)
 
         # reconstruction loss
         recon_loss = self.gaussian_likelihood(x_hat, x)
@@ -317,33 +307,17 @@ class VAE(AE):
         return elbo
 
     def validation_step(self, batch, batch_idx):
-        x, _, _ = batch
-        loc, log_var = self.encoder(x)
-
-        std = torch.exp(log_var / 2)
-        q = torch.distributions.Normal(loc, std)
-        z = q.rsample()
-
-        x_hat = self.out_activ(self.decoder(z))
-
+        x, l, _ = batch
+        _, _, x_hat = self.forward(x, l)
         loss = F.mse_loss(x_hat, x)
-
         self.log("hp/valid_loss", loss)
 
     def test_step(self, batch, batch_idx):
-        x, _, info = batch
-        loc, log_var = self.encoder(x)
-
-        std = torch.exp(log_var / 2)
-        q = torch.distributions.Normal(loc, std)
-        z = q.rsample()
-
-        x_hat = self.out_activ(self.decoder(z))
-
+        x, l, info = batch
+        _, _, x_hat = self.forward(x, l)
         loss = F.mse_loss(x_hat, x)
-
         self.log("hp/test_loss", loss)
-        return x, x_hat, info
+        return x, l, x_hat, info
 
     def gaussian_likelihood(self, x_hat, x):
         mean = x_hat

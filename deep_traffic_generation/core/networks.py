@@ -36,10 +36,10 @@ class FCN(nn.Module):
             if (index != self.n_layers - 1) and (dropout > 0):
                 layers.append(nn.Dropout(dropout))
 
-        self.encoder = nn.Sequential(*layers)
+        self.layers = nn.Sequential(*layers)
 
-    def forward(self, x):
-        return self.encoder(x)
+    def forward(self, x, lengths):
+        return self.layers(x)
 
 
 class RNN(nn.Module):

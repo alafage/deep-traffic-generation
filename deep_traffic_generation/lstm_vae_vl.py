@@ -4,16 +4,12 @@ from typing import Dict, List, Optional, Union
 
 import torch
 import torch.nn as nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_sequence
 
 from deep_traffic_generation.core import RNN, VAE
 from deep_traffic_generation.core.datasets import TrafficDataset
 from deep_traffic_generation.core.protocols import TransformerProtocol
 from deep_traffic_generation.core.utils import cli_main
-
-"""
-    Based on sequitur library LSTM_AE (https://github.com/shobrook/sequitur)
-    Adapted to handle batch of sequences
-"""
 
 
 # fmt: on
@@ -28,6 +24,8 @@ class Encoder(nn.Module):
         batch_first: bool,
     ) -> None:
         super().__init__()
+
+        self.batch_first = batch_first
 
         self.encoder = RNN(
             input_dim=input_dim,
@@ -78,16 +76,16 @@ class Decoder(nn.Module):
         return self.fc(x)
 
 
-class LSTMVAE(VAE):
-    """LSTM Variational Autoencoder"""
+# packed_x = pack_padded_sequence(
+#             x,
+#             lengths,
+#             batch_first=self.batch_first,
+#             enforce_sorted=False,
+#         )
 
-    _required_hparams = [
-        "learning_rate",
-        "step_size",
-        "gamma",
-        "encoding_dim",
-        "h_dims",
-    ]
+
+class LstmVAEVL(VAE):
+    """LSTM Variational Autoencoder"""
 
     def __init__(
         self,
@@ -126,10 +124,24 @@ class LSTMVAE(VAE):
 
         self.out_activ = nn.Tanh()
 
+    def forward(self, x, lengths=None):
+        if lengths is not None:
+            packed_x = pack_padded_sequence(
+                x,
+                lengths,
+                batch_first=self.batch_first,
+                enforce_sorted=False,
+            )
+            z, (loc, std), packed_x_hat = super().forward(packed_x)
+            x_hat = pad_sequence(packed_x_hat, batch_first=True)
+            return z, (loc, std), x_hat
+        else:
+            return super().forward(x)
+
     @classmethod
     def network_name(cls) -> str:
-        return "lstm_vae"
+        return "lstm_vae_vl"
 
 
 if __name__ == "__main__":
-    cli_main(LSTMVAE, TrafficDataset, "sequence", seed=42)
+    cli_main(LstmVAEVL, TrafficDataset, "sequence", seed=42)
