@@ -37,17 +37,21 @@ pip install -e .
 # module folder
 cd deep_traffic_generation
 
-# example: run module
+# example: run module with default arguments
 python linear_ae.py
-# example: run module with arguments
-python linear_ae.py --gpus 1 --early_stop --max_epochs 200
+# example: run module with custom arguments
+python linear_ae.py --gpus 1 --early_stop 10 --max_epochs 200 --lr 0.001
 ```
 
-You can use Tensorboard to analyse your network's trainings
+You can use Tensorboard to visualize training logs.
 
 ```bash
 tensorboard --logdir lightning_logs
 ```
+
+## Traffic Dataset
+
+This project provides a custom dataset to handle trajectories with PyTorch.
 
 ## Imports
 This project is setup as a package which means you can now easily import any file into any other file like so:

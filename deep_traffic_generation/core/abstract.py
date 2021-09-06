@@ -94,7 +94,10 @@ class Abstract(LightningModule):
             ]
         )
         if "track_unwrapped" in self.dataset_params["features"]:
-            builder.append(LatLonBuilder(build_from="azgs"))
+            if self.dataset_params["info_params"]["index"] == 0:
+                builder.append(LatLonBuilder(build_from="azgs"))
+            elif self.dataset_params["info_params"]["index"] == -1:
+                builder.append(LatLonBuilder(build_from="azgs_r"))
         elif "x" in self.dataset_params["features"]:
             builder.append(LatLonBuilder(build_from="xy", projection=EuroPP()))
 
@@ -185,21 +188,16 @@ class AE(Abstract):
         length = outputs[0][1][idx].cpu().item()
         reconstruct = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
         data = np.concatenate((original, reconstruct), axis=0)
-        # print(data.shape)
         data = data.reshape((2, -1))
-        # print(data.shape)
         # remove padding
         data = data[:, : length * len(self.dataset_params["features"])]
-        # print(data.shape)
         # reshape for unscaling
         data = data.reshape((-1, len(self.dataset_params["features"])))
-        # print(data.shape)
         # unscale the data
         if self.dataset_params["scaler"] is not None:
             data = self.dataset_params["scaler"].inverse_transform(data)
 
         data = data.reshape((2, -1))
-        # print(data.shape)
         # add info if needed (init_features)
         info_len = len(self.dataset_params["info_params"]["features"])
         if info_len > 0:
@@ -209,13 +207,12 @@ class AE(Abstract):
         # get builder
         builder = self.get_builder(
             nb_samples=2,
-            length=length + info_len,
+            length=length,
         )
         features = [
             "track" if "track" in f else f
             for f in self.dataset_params["features"]
         ]
-        # print(data)
         # build traffic
         traffic = traffic_from_data(
             data,

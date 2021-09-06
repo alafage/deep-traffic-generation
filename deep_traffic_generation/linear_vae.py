@@ -50,7 +50,10 @@ class LinearVAE(VAE):
 
         self.h_activ: Optional[nn.Module] = None
 
-        # self.example_input_array = torch.rand((1, self.input_dim))
+        # self.example_input_array = [
+        #     torch.rand((1, self.dataset_params["input_dim"])),
+        #     [self.dataset_params["input_dim"]],
+        # ]
 
         # encoder
         self.encoder = _Encoder(

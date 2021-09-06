@@ -3,6 +3,7 @@ from argparse import Namespace
 # from deep_traffic_generation.core.losses import sdtw_loss
 from typing import Dict, Union
 
+import torch
 import torch.nn as nn
 
 from deep_traffic_generation.core import AE, FCN
@@ -21,9 +22,10 @@ class LinearAE(AE):
     ) -> None:
         super().__init__(dataset_params, config)
 
-        # self.example_input_array = torch.rand(
-        #     (1, self.dataset_params["input_dim"])
-        # )
+        self.example_input_array = [
+            torch.rand((1, self.dataset_params["input_dim"])),
+            torch.Tensor([self.dataset_params["input_dim"]]),
+        ]
 
         self.encoder = FCN(
             input_dim=self.dataset_params["input_dim"],

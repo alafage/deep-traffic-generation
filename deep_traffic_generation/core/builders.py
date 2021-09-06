@@ -33,7 +33,6 @@ class IdentifierBuilder(BuilderProtocol):
     def __init__(self, nb_samples: int, nb_obs: int) -> None:
         self.nb_samples = nb_samples
         self.nb_obs = nb_obs
-
         self.identifiers = np.array(
             [[str(sample)] * nb_obs for sample in range(nb_samples)]
         ).ravel()
@@ -49,7 +48,7 @@ class IdentifierBuilder(BuilderProtocol):
 class LatLonBuilder(BuilderProtocol):
     """Builder for latitude and longitude data."""
 
-    _available_foundations = ["xy", "azgs"]
+    _available_foundations = ["xy", "azgs", "azgs_r"]
 
     def __init__(self, build_from: str, **kwargs):
         self.foundation = build_from
@@ -67,10 +66,12 @@ class LatLonBuilder(BuilderProtocol):
             return self.from_xy
         elif foundation == "azgs":
             return self.from_azgs
+        elif foundation == "azgs_r":
+            return self.from_azgs_reverse
         else:
             raise ValueError(f"Unsupported foundation: {foundation}.")
 
-    def from_xy(self, data: pd.DataFrame) -> pd.DataFrame:
+    def from_xy(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """TODO: comments"""
         projection: Union[pyproj.Proj, crs.Projection, None] = None
 
@@ -102,7 +103,7 @@ class LatLonBuilder(BuilderProtocol):
 
         return lat, lon
 
-    def from_azgs(self, data: pd.DataFrame) -> pd.DataFrame:
+    def from_azgs(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """TODO: comments"""
         # TODO: check data
 
@@ -121,7 +122,8 @@ class LatLonBuilder(BuilderProtocol):
                     data.loc[i, "timestamp"] - data.loc[i - 1, "timestamp"]
                 ).total_seconds()
                 # TODO: find best coeff
-                d = gs * delta_time * (1852 / 3600)
+                coeff = 0.99
+                d = coeff * gs * delta_time * (1852 / 3600)
                 lat2, lon2, _ = destination(lat1, lon1, track, d)
                 lat[i] = lat2
                 lon[i] = lon2
@@ -130,6 +132,39 @@ class LatLonBuilder(BuilderProtocol):
                 lon[i] = data.loc[i, "longitude"]
 
         return lat, lon
+
+    def from_azgs_reverse(
+        self, data: pd.DataFrame
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        df = data.copy(deep=True)
+        df["track"] = df["track"].values[::-1] - 180
+        df["groundspeed"] = df["groundspeed"].values[::-1]
+        df["timestamp"] = df["timestamp"].values[::-1]
+        lat = np.empty(len(df))
+        lon = np.empty(len(df))
+
+        for i in range(len(df)):
+            if np.isnan(df.loc[i, "longitude"]) or np.isnan(
+                df.loc[i, "latitude"]
+            ):
+                lon1 = lon[i - 1]
+                lat1 = lat[i - 1]
+                track = df.loc[i - 1, "track"]
+                gs = df.loc[i - 1, "groundspeed"]
+                delta_time = (
+                    df.loc[i - 1, "timestamp"] - df.loc[i, "timestamp"]
+                ).total_seconds()
+                # TODO: find best coeff
+                coeff = 0.99
+                d = coeff * gs * delta_time * (1852 / 3600)
+                lat2, lon2, _ = destination(lat1, lon1, track, d)
+                lat[i] = lat2
+                lon[i] = lon2
+            else:
+                lat[i] = df.loc[i, "latitude"]
+                lon[i] = df.loc[i, "longitude"]
+
+        return lat[::-1], lon[::-1]
 
 
 class TimestampBuilder(BuilderProtocol):

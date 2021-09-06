@@ -7,8 +7,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from deep_traffic_generation.core import AE, TCN
-from deep_traffic_generation.core.datasets import TrafficDataset
-from deep_traffic_generation.core.protocols import TransformerProtocol
+from deep_traffic_generation.core.datasets import DatasetParams, TrafficDataset
 from deep_traffic_generation.core.utils import cli_main
 
 
@@ -52,7 +51,7 @@ class TCEncoder(nn.Module):
             # We might want to add a non-linear activation
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         z = self.encoder(x)
         return z
 
@@ -92,7 +91,7 @@ class TCDecoder(nn.Module):
             ),
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         x = self.decode_entry(x)
         b, _ = x.size()
         x = x.view(b, -1, int(self.seq_len / self.sampling_factor))
@@ -114,23 +113,27 @@ class TCAE(AE):
 
     def __init__(
         self,
-        x_dim: int,
-        seq_len: int,
-        scaler: Optional[TransformerProtocol],
-        navpts: Optional[torch.Tensor],
+        dataset_params: DatasetParams,
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(x_dim, seq_len, scaler, navpts, config)
+        super().__init__(dataset_params, config)
 
-        self.example_input_array = torch.rand(
-            (self.input_dim, self.seq_len)
-        ).unsqueeze(0)
+        self.example_input_array = [
+            torch.rand(
+                (
+                    1,
+                    self.dataset_params["input_dim"],
+                    self.dataset_params["seq_len"],
+                )
+            ),
+            torch.Tensor([self.dataset_params["seq_len"]]),
+        ]
 
         self.encoder = TCEncoder(
-            input_dim=x_dim,
+            input_dim=self.dataset_params["input_dim"],
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
-            seq_len=self.seq_len,
+            seq_len=self.dataset_params["seq_len"],
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
@@ -140,9 +143,9 @@ class TCAE(AE):
 
         self.decoder = TCDecoder(
             input_dim=self.hparams.encoding_dim,
-            out_dim=x_dim,
+            out_dim=self.dataset_params["input_dim"],
             h_dims=self.hparams.h_dims[::-1],
-            seq_len=self.seq_len,
+            seq_len=self.dataset_params["seq_len"],
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
@@ -165,12 +168,12 @@ class TCAE(AE):
     #     return loss
 
     def test_step(self, batch, batch_idx):
-        x, _, info = batch
-        z = self.encoder(x)
-        x_hat = self.out_activ(self.decoder(z))
+        x, l, info = batch
+        z = self.encoder(x, l)
+        x_hat = self.out_activ(self.decoder(z, l))
         loss = F.mse_loss(x_hat, x)
         self.log("hp/test_loss", loss)
-        return torch.transpose(x, 1, 2), torch.transpose(x_hat, 1, 2), info
+        return torch.transpose(x, 1, 2), l, torch.transpose(x_hat, 1, 2), info
 
     @classmethod
     def network_name(cls) -> str:

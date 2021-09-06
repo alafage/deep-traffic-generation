@@ -120,7 +120,6 @@ def init_dataframe(
     nb_samples = data.shape[0]
     dense = dense.reshape(nb_samples, -1, len(features))
     nb_obs = dense.shape[1]
-    print(dense.shape)
     # handle sparce features (init_features)
     if len(init_features) > 0:
         sparce = data[:, :len(init_features)]
@@ -135,7 +134,6 @@ def init_dataframe(
     df = pd.DataFrame(
         {feature: dense[:, :, i].ravel() for i, feature in enumerate(features)}
     )
-    print(df)
     return df
 
 
@@ -146,11 +144,9 @@ def traffic_from_data(
     init_features: List[str] = [],
     builder: Optional[BuilderProtocol] = None,
 ) -> Traffic:
-    print(features)
-    print(init_features)
+
     df = init_dataframe(data, features, init_features)
 
-    print(len(df))
     if builder is not None:
         df = builder(df)
 
@@ -275,7 +271,7 @@ def cli_main(
         scaler=MinMaxScaler(feature_range=(-1, 1)),
         info_params=Infos(features=args.info_features, index=args.info_index),
     )
-
+    print(dataset.input_dim)
     train_loader, val_loader, test_loader = get_dataloaders(
         dataset,
         args.train_ratio,

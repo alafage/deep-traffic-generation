@@ -20,6 +20,7 @@ class DatasetParams(TypedDict):
     info_params: Infos
     input_dim: int
     scaler: Optional[TransformerProtocol]
+    seq_len: int
     shape: str
 
 
@@ -84,8 +85,9 @@ class TrafficDataset(Dataset):
             for f in traffic
         ]
 
-        feats, self.lengths = zip(*data)
+        feats, lengths = zip(*data)
         self.data = pad_sequence(feats, batch_first=True)
+        self.lengths = torch.Tensor(lengths)
 
         if self.shape == "linear":
             self.data = self.data.view(self.__len__(), -1)
@@ -96,12 +98,14 @@ class TrafficDataset(Dataset):
         self.infos = []
         # TODO: change condition (if not is_empty(self.info_params))
         if self.info_params["index"] is not None:
-            self.infos = [
-                f.data[self.info_params["features"]]
-                .iloc[self.info_params["index"]]
-                .values.ravel()
-                for f in traffic
-            ]
+            self.infos = torch.Tensor(
+                [
+                    f.data[self.info_params["features"]]
+                    .iloc[self.info_params["index"]]
+                    .values.ravel()
+                    for f in traffic
+                ]
+            )
 
     def __len__(self) -> int:
         return len(self.data)

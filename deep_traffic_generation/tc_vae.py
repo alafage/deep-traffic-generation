@@ -1,4 +1,3 @@
-# TODO: TCN Autoencoder
 # fmt: off
 from argparse import ArgumentParser, Namespace, _ArgumentGroup
 from typing import Dict, List, Optional, Tuple, Union
@@ -8,8 +7,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from deep_traffic_generation.core import TCN, VAE
-from deep_traffic_generation.core.datasets import TrafficDataset
-from deep_traffic_generation.core.protocols import TransformerProtocol
+from deep_traffic_generation.core.datasets import DatasetParams, TrafficDataset
 from deep_traffic_generation.core.utils import cli_main
 
 
@@ -59,7 +57,7 @@ class TCEncoder(nn.Module):
             h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         z = self.encoder(x)
         _, c, length = z.size()
         z = z.view(-1, c * length)
@@ -102,7 +100,7 @@ class TCDecoder(nn.Module):
             # nn.Tanh(),
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         x = self.decode_entry(x)
         b, _ = x.size()
         x = x.view(b, -1, int(self.seq_len / self.sampling_factor))
@@ -124,23 +122,27 @@ class TCVAE(VAE):
 
     def __init__(
         self,
-        x_dim: int,
-        seq_len: int,
-        scaler: Optional[TransformerProtocol],
-        navpts: Optional[torch.Tensor],
+        dataset_params: DatasetParams,
         config: Union[Dict, Namespace],
     ) -> None:
-        super().__init__(x_dim, seq_len, scaler, navpts, config)
+        super().__init__(dataset_params, config)
 
-        self.example_input_array = torch.rand(
-            (self.input_dim, self.seq_len)
-        ).unsqueeze(0)
+        self.example_input_array = [
+            torch.rand(
+                (
+                    1,
+                    self.dataset_params["input_dim"],
+                    self.dataset_params["seq_len"],
+                )
+            ),
+            torch.Tensor([self.dataset_params["seq_len"]]),
+        ]
 
         self.encoder = TCEncoder(
-            input_dim=x_dim,
+            input_dim=self.dataset_params["input_dim"],
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
-            seq_len=self.seq_len,
+            seq_len=self.dataset_params["seq_len"],
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
@@ -150,9 +152,9 @@ class TCVAE(VAE):
 
         self.decoder = TCDecoder(
             input_dim=self.hparams.encoding_dim,
-            out_dim=x_dim,
+            out_dim=self.dataset_params["input_dim"],
             h_dims=self.hparams.h_dims[::-1],
-            seq_len=self.seq_len,
+            seq_len=self.dataset_params["seq_len"],
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
@@ -161,22 +163,22 @@ class TCVAE(VAE):
         )
 
         # non-linear activations
-        self.out_activ: Optional[nn.Module] = LinearAct()
+        self.out_activ = LinearAct()
 
     def test_step(self, batch, batch_idx):
-        x, _, info = batch
-        loc, log_var = self.encoder(x)
+        x, l, info = batch
+        loc, log_var = self.encoder(x, l)
 
         std = torch.exp(log_var / 2)
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
 
-        x_hat = self.out_activ(self.decoder(z))
+        x_hat = self.out_activ(self.decoder(z, l))
 
         loss = F.mse_loss(x_hat, x)
 
         self.log("hp/test_loss", loss)
-        return torch.transpose(x, 1, 2), torch.transpose(x_hat, 1, 2), info
+        return torch.transpose(x, 1, 2), l, torch.transpose(x_hat, 1, 2), info
 
     @classmethod
     def network_name(cls) -> str:
