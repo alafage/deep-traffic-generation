@@ -8,7 +8,20 @@ from torch.nn.utils import weight_norm
 
 # fmt: on
 class FCN(nn.Module):
-    """Fully Connected Network"""
+    """Fully-Connected Network
+
+    Args:
+        input_dim: size of each input sample
+        out_dim: size of each output sample
+        h_dims: list of sizes for each hidden layer
+        h_activ (optional): activation function between
+            each layer. Defaults to None.
+        dropout (optional): if non-zero, introduces a Dropout layer on the
+            outputs of each hidden layer except the last layer, with dropout
+            probability equal to :attr: `dropout`. Defaults to 0.0.
+
+    Inputs: input
+    """
 
     def __init__(
         self,
@@ -38,7 +51,7 @@ class FCN(nn.Module):
 
         self.layers = nn.Sequential(*layers)
 
-    def forward(self, x, lengths):
+    def forward(self, x):
         return self.layers(x)
 
 

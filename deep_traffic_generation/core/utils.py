@@ -20,9 +20,9 @@ from torch.utils.data.dataset import Dataset
 from traffic.core import Traffic
 from traffic.core.projection import EuroPP
 
-from deep_traffic_generation.core.datasets import Infos, TrafficDataset
-
 from .protocols import BuilderProtocol
+
+# from deep_traffic_generation.core.datasets import TrafficDataset
 
 
 def extract_features(
@@ -190,7 +190,7 @@ def init_hidden(
 
 def cli_main(
     cls: LightningModule,
-    dataset_cls: TrafficDataset,
+    dataset_cls: Dataset,
     data_shape: str,
     seed: int = 42,
 ) -> None:
@@ -269,7 +269,7 @@ def cli_main(
         features=args.features,
         shape=data_shape,
         scaler=MinMaxScaler(feature_range=(-1, 1)),
-        info_params=Infos(features=args.info_features, index=args.info_index),
+        info_params={"features": args.info_features, "index": args.info_index},
     )
     print(dataset.input_dim)
     train_loader, val_loader, test_loader = get_dataloaders(

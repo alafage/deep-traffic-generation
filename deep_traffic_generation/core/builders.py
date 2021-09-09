@@ -170,8 +170,10 @@ class LatLonBuilder(BuilderProtocol):
 class TimestampBuilder(BuilderProtocol):
     """Builder for timestamp data."""
 
-    def __init__(self, base_ts: pd.Timestamp = pd.Timestamp.today()) -> None:
-        self.base_ts = base_ts
+    def __init__(
+        self, base_ts: pd.Timestamp = pd.Timestamp.today(tz="UTC")
+    ) -> None:
+        self.base_ts = base_ts.round(freq="S")
 
     def __call__(self, data: pd.DataFrame) -> pd.DataFrame:
         assert (

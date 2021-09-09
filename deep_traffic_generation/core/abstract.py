@@ -86,7 +86,7 @@ class Abstract(LightningModule):
 
         return parent_parser, parser
 
-    def get_builder(self, nb_samples: int, length) -> CollectionBuilder:
+    def get_builder(self, nb_samples: int, length: int) -> CollectionBuilder:
         builder = CollectionBuilder(
             [
                 IdentifierBuilder(nb_samples, length),
@@ -185,10 +185,11 @@ class AE(Abstract):
         """FIXME: too messy."""
         idx = 0
         original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
-        length = outputs[0][1][idx].cpu().item()
+        length = int(outputs[0][1][idx].cpu().item())
         reconstruct = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
         data = np.concatenate((original, reconstruct), axis=0)
-        data = data.reshape((2, -1))
+        n_samples = data.shape[0]
+        data = data.reshape((n_samples, -1))
         # remove padding
         data = data[:, : length * len(self.dataset_params["features"])]
         # reshape for unscaling
@@ -197,7 +198,7 @@ class AE(Abstract):
         if self.dataset_params["scaler"] is not None:
             data = self.dataset_params["scaler"].inverse_transform(data)
 
-        data = data.reshape((2, -1))
+        data = data.reshape((n_samples, -1))
         # add info if needed (init_features)
         info_len = len(self.dataset_params["info_params"]["features"])
         if info_len > 0:
@@ -206,7 +207,7 @@ class AE(Abstract):
             data = np.concatenate((info, data), axis=1)
         # get builder
         builder = self.get_builder(
-            nb_samples=2,
+            nb_samples=n_samples,
             length=length,
         )
         features = [
@@ -224,6 +225,38 @@ class AE(Abstract):
         self.logger.experiment.add_figure(
             "original vs reconstructed", plot_traffic(traffic)
         )
+
+    # def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
+    #     """FIXME: too messy."""
+    #     idx = 0
+    #     original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
+    #     reconstructed = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
+    #     data = np.concatenate((original, reconstructed), axis=0)
+    #     data = data.reshape((data.shape[0], -1))
+    #     # unscale the data
+    #     if self.dataset_params["scaler"] is not None:
+    #         data = self.dataset_params["scaler"].inverse_transform(data)
+    #     # add info if needed (init_features)
+    #     if len(self.dataset_params["info_params"]["features"]) > 0:
+    #         info = outputs[0][3][idx].unsqueeze(0).cpu().numpy()
+    #         info = np.repeat(info, data.shape[0], axis=0)
+    #         data = np.concatenate((info, data), axis=1)
+    #     # get builder
+    #     builder = self.get_builder(nb_samples=2, length=200)
+    #     features = [
+    #         "track" if "track" in f else f for f in self.hparams.features
+    #     ]
+    #     # build traffic
+    #     traffic = traffic_from_data(
+    #         data,
+    #         features,
+    #         self.dataset_params["info_params"]["features"],
+    #         builder=builder,
+    #     )
+    #     # generate plot then send it to logger
+    #     self.logger.experiment.add_figure(
+    #         "original vs reconstructed", plot_traffic(traffic)
+    #     )
 
     @classmethod
     def add_model_specific_args(
