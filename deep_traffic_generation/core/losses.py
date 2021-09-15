@@ -17,14 +17,17 @@ def reduce(loss: torch.Tensor, reduction: str) -> torch.Tensor:
 
 
 def npa_loss(
-    input: torch.Tensor, navpoints: torch.Tensor, reduction: str = "mean"
+    position: torch.Tensor,
+    track: torch.Tensor,
+    navpoints: torch.Tensor,
+    reduction: str = "mean",
 ) -> torch.Tensor:
     """The Navigational Point Alignment loss.
-
+    FIXME: description
     Parameters:
     input: torch.Tensor
         Input tensor should be a 3D Tensor (N, H, L) with 3 features:
-        (`x`, `y`, `track`). Note: `track` should be in radians.
+        (`x`, `y`, `track`). Note: `track` should be in degrees.
     navpoints: torch.Tensor
         Navpoints coordinates, a 2D Tensor (*, 2).
     reduction: string, optional
@@ -34,17 +37,17 @@ def npa_loss(
         output, `'sum'`: the output will be summed. Default: `'mean'`
     """
     # Compute bearing for each navpoints at each timestamp
-    x1 = input[:, 0, :].unsqueeze(2)
-    y1 = input[:, 1, :].unsqueeze(2)
-    tracks = input[:, 2, :].unsqueeze(2)
+    x1 = position[:, 0, :].unsqueeze(2)
+    y1 = position[:, 1, :].unsqueeze(2)
+    t = track.unsqueeze(2)
     x2 = navpoints[:, 0]
     y2 = navpoints[:, 1]
     # bearings: (N, L, len(navpoints))
-    bearings = torch.atan2(x2 - x1, y2 - y1) - torch.Tensor([math.pi / 2]).to(
-        input.device
+    bearings = torch.atan2(x2 - x1, y2 - y1) * (
+        torch.Tensor([180 / math.pi]).to(track.device)
     )
     # mins: (N, L)
-    mins, _ = torch.min((tracks - bearings).abs(), dim=2)
+    mins, _ = torch.min((t - bearings).abs(), dim=2)
     # loss: (N)
     loss = torch.sum(mins, dim=1)
 

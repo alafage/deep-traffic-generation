@@ -98,7 +98,7 @@ class TCDecoder(nn.Module):
         return x_hat
 
 
-class TCVAEDL(VAE):
+class TCVAEDP(VAE):
     """Temporal Convolutional Variational Autoencoder
 
     Source: http://www.gm.fh-koeln.de/ciopwebpub/Thill20a.d/bioma2020-tcn.pdf
@@ -193,4 +193,4 @@ class TCVAEDL(VAE):
 
 
 if __name__ == "__main__":
-    cli_main(TCVAEDL, TrafficDataset, "image", seed=42)
+    cli_main(TCVAEDP, TrafficDataset, "image", seed=42)

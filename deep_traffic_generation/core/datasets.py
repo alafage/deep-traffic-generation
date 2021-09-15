@@ -92,13 +92,13 @@ class TrafficDataset(Dataset):
 
         # fit scaler
         tmp = traffic.data[features].values
-        self.scaler = self.scaler.fit(tmp)
+        self.scaler = self.scaler.fit(torch.FloatTensor(tmp))
 
         # extract features and lengths
         data = [
             [
-                torch.FloatTensor(
-                    self.scaler.transform(
+                self.scaler.transform(
+                    torch.FloatTensor(
                         f.data[features]
                         .values.ravel()
                         .reshape(-1, len(features))
@@ -110,7 +110,7 @@ class TrafficDataset(Dataset):
         ]
 
         feats, lengths = zip(*data)
-        self.data = pad_sequence(feats, batch_first=True)
+        self.data = pad_sequence(feats, batch_first=True, padding_value=-1)
         self.lengths = torch.Tensor(lengths)
 
         if self.shape == "linear":
@@ -246,13 +246,14 @@ class TrafficDatasetOld(Dataset):
         data = np.stack(
             list(f.data[self.features].values.ravel() for f in traffic)
         )
+        data = torch.FloatTensor(data)
+
         self.scaler = scaler
         if self.scaler is not None:
             self.scaler = self.scaler.fit(data)
             data = self.scaler.transform(data)
 
-        self.data = torch.FloatTensor(data)
-
+        self.data = data
         if self.shape in ["sequence", "image"]:
             self.data = self.data.view(
                 self.data.size(0), -1, len(self.features)

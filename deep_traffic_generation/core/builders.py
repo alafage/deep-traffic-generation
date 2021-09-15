@@ -34,7 +34,7 @@ class IdentifierBuilder(BuilderProtocol):
         self.nb_samples = nb_samples
         self.nb_obs = nb_obs
         self.identifiers = np.array(
-            [[str(sample)] * nb_obs for sample in range(nb_samples)]
+            [[f"TRAJ_{sample}"] * nb_obs for sample in range(nb_samples)]
         ).ravel()
 
     def __call__(self, data: pd.DataFrame) -> pd.DataFrame:

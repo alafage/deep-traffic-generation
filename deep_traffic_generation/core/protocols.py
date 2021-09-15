@@ -1,7 +1,8 @@
-from typing import Protocol
+from typing import Protocol, Union
 
 import numpy as np
 import pandas as pd
+import torch
 
 
 class BuilderProtocol(Protocol):
@@ -13,11 +14,17 @@ class TransformerProtocol(Protocol):
     def fit(self, X: np.ndarray) -> "TransformerProtocol":
         ...
 
-    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+    def fit_transform(
+        self, X: Union[np.ndarray, torch.Tensor]
+    ) -> Union[np.ndarray, torch.Tensor]:
         ...
 
-    def transform(self, X: np.ndarray) -> np.ndarray:
+    def transform(
+        self, X: Union[np.ndarray, torch.Tensor]
+    ) -> Union[np.ndarray, torch.Tensor]:
         ...
 
-    def inverse_transform(self, X: np.ndarray) -> np.ndarray:
+    def inverse_transform(
+        self, X: Union[np.ndarray, torch.Tensor]
+    ) -> Union[np.ndarray, torch.Tensor]:
         ...

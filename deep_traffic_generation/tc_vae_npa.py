@@ -3,14 +3,17 @@
 from argparse import ArgumentParser, Namespace, _ArgumentGroup
 from typing import Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
 from deep_traffic_generation.core import TCN, VAE
-from deep_traffic_generation.core.datasets import TrafficDataset
+from deep_traffic_generation.core.datasets import (
+    DatasetParams, TrafficDatasetOld
+)
 from deep_traffic_generation.core.losses import npa_loss
-from deep_traffic_generation.core.protocols import TransformerProtocol
+from deep_traffic_generation.core.transforms import PyTMinMaxScaler
 from deep_traffic_generation.core.utils import cli_main
 
 
@@ -26,8 +29,8 @@ class LinearAct(nn.Module):
 class TCEncoder(nn.Module):
     def __init__(
         self,
-        input_dim,
-        out_dim,
+        input_dim: int,
+        out_dim: int,
         h_dims: List[int],
         seq_len: int,
         kernel_size: int,
@@ -50,6 +53,7 @@ class TCEncoder(nn.Module):
             ),
             nn.AvgPool1d(sampling_factor),
             # We might want to add a non-linear activation
+            # nn.Tanh(),
         )
 
         self.z_loc = nn.Linear(
@@ -59,7 +63,7 @@ class TCEncoder(nn.Module):
             h_dims[-1] * (int(seq_len / sampling_factor)), out_dim
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         z = self.encoder(x)
         _, c, length = z.size()
         z = z.view(-1, c * length)
@@ -69,8 +73,8 @@ class TCEncoder(nn.Module):
 class TCDecoder(nn.Module):
     def __init__(
         self,
-        input_dim,
-        out_dim,
+        input_dim: int,
+        out_dim: int,
         h_dims: List[int],
         seq_len: int,
         kernel_size: int,
@@ -99,9 +103,10 @@ class TCDecoder(nn.Module):
                 h_activ,
                 dropout,
             ),
+            # nn.Tanh(),
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         x = self.decode_entry(x)
         b, _ = x.size()
         x = x.view(b, -1, int(self.seq_len / self.sampling_factor))
@@ -124,45 +129,57 @@ class TCVAENPA(VAE):
 
     def __init__(
         self,
-        x_dim: int,
-        seq_len: int,
-        scaler: Optional[TransformerProtocol],
-        navpts: Optional[torch.Tensor],
+        dataset_params: DatasetParams,
         config: Union[Dict, Namespace],
     ) -> None:
 
-        assert navpts is not None
+        super().__init__(dataset_params, config)
 
-        super().__init__(x_dim, seq_len, scaler, navpts, config)
+        # navpoints coordinates have been projected using EuroPP projection
+        with open("./data/navpoints_15.npy", "rb") as f:
+            navpts = torch.from_numpy(np.load(f))
 
-        # non-linear activations
-        h_activ: Optional[nn.Module] = None
+        # navpoints coordinates should be scaled according to dataset scaler
+        if isinstance(self.dataset_params["scaler"], PyTMinMaxScaler):
+            navpts = self.dataset_params["scaler"].partial_transform(
+                navpts,
+                idxs=np.where(
+                    np.isin(self.dataset_params["features"], ["x", "y"])
+                )[0],
+            )
 
-        self.example_input_array = torch.rand(
-            (self.input_dim, self.seq_len)
-        ).unsqueeze(0)
+        self.navpts = navpts
+
+        self.example_input_array = [
+            torch.rand(
+                (
+                    1,
+                    self.dataset_params["input_dim"],
+                    self.dataset_params["seq_len"],
+                )
+            ),
+            torch.Tensor([self.dataset_params["seq_len"]]),
+        ]
 
         self.encoder = TCEncoder(
-            input_dim=x_dim,
+            input_dim=self.dataset_params["input_dim"],
             out_dim=self.hparams.encoding_dim,
             h_dims=self.hparams.h_dims,
-            seq_len=self.seq_len,
+            seq_len=self.dataset_params["seq_len"],
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
-            h_activ=h_activ,
             dropout=self.hparams.dropout,
         )
 
         self.decoder = TCDecoder(
             input_dim=self.hparams.encoding_dim,
-            out_dim=x_dim,
+            out_dim=self.dataset_params["input_dim"],
             h_dims=self.hparams.h_dims[::-1],
-            seq_len=self.seq_len,
+            seq_len=self.dataset_params["seq_len"],
             kernel_size=self.hparams.kernel_size,
             dilation_base=self.hparams.dilation_base,
             sampling_factor=self.hparams.sampling_factor,
-            h_activ=h_activ,
             dropout=self.hparams.dropout,
         )
 
@@ -170,21 +187,12 @@ class TCVAENPA(VAE):
         self.out_activ: Optional[nn.Module] = LinearAct()
 
     def training_step(self, batch, batch_idx):
-        x, labels, _ = batch
-        # encode x to get the location and log variance parameters
-        loc, log_var = self.encoder(x)
-
-        # sample z from q(z|x)
-        std = torch.exp(log_var / 2)
-        q = torch.distributions.Normal(loc, std)
-        z = q.rsample()
-
-        # decode z
-        x_hat = self.decoder(z)
+        x, l, _ = batch
+        z, (loc, std), x_hat = self.forward(x, l)
 
         # reconstruction loss
         recon_loss = self.gaussian_likelihood(x_hat, x)
-        # recon_loss = F.mse_loss(x, x_hat)
+        # recon_loss = -F.mse_loss(x, x_hat, reduce=False).sum(dim=(1, 2))
 
         # kullback-leibler divergence
         c_max = torch.Tensor([self.hparams.c_max])
@@ -197,7 +205,23 @@ class TCVAENPA(VAE):
         kl = self.kl_divergence(z, loc, std)
 
         # navigational point alignment loss
-        npa = npa_loss(x_hat, self.navpts.to(self.device), reduction="none")
+        # unscale track_unwrapped
+        track_idx = self.dataset_params["features"].index("track")
+        if isinstance(self.dataset_params["scaler"], PyTMinMaxScaler):
+            tracks = self.dataset_params["scaler"].partial_inverse(
+                x_hat[:, track_idx], idxs=track_idx
+            )
+        npa = npa_loss(
+            x_hat[
+                :,
+                np.where(np.isin(self.dataset_params["features"], ["x", "y"]))[
+                    0
+                ],
+            ],
+            tracks,
+            self.navpts.to(self.device),
+            reduction="none",
+        )
 
         # elbo with beta hyperparameter:
         #   Higher values enforce orthogonality between latent representation.
@@ -221,19 +245,19 @@ class TCVAENPA(VAE):
         return elbo
 
     def test_step(self, batch, batch_idx):
-        x, _, info = batch
-        loc, log_var = self.encoder(x)
+        x, l, info = batch
+        loc, log_var = self.encoder(x, l)
 
         std = torch.exp(log_var / 2)
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
 
-        x_hat = self.decoder(z)
+        x_hat = self.out_activ(self.decoder(z, l))
 
         loss = F.mse_loss(x_hat, x)
 
         self.log("hp/test_loss", loss)
-        return torch.transpose(x, 1, 2), torch.transpose(x_hat, 1, 2), info
+        return torch.transpose(x, 1, 2), l, torch.transpose(x_hat, 1, 2), info
 
     @classmethod
     def network_name(cls) -> str:
@@ -266,11 +290,11 @@ class TCVAENPA(VAE):
             "--align_coef",
             dest="align_coef",
             type=float,
-            default=1.0,
+            default=0.1,
         )
 
         return parent_parser, parser
 
 
 if __name__ == "__main__":
-    cli_main(TCVAENPA, TrafficDataset, "image", seed=42)
+    cli_main(TCVAENPA, TrafficDatasetOld, "image", seed=42)

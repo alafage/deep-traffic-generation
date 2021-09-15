@@ -98,6 +98,11 @@ class Abstract(LightningModule):
                 builder.append(LatLonBuilder(build_from="azgs"))
             elif self.dataset_params["info_params"]["index"] == -1:
                 builder.append(LatLonBuilder(build_from="azgs_r"))
+        elif "track" in self.dataset_params["features"]:
+            if self.dataset_params["info_params"]["index"] == 0:
+                builder.append(LatLonBuilder(build_from="azgs"))
+            elif self.dataset_params["info_params"]["index"] == -1:
+                builder.append(LatLonBuilder(build_from="azgs_r"))
         elif "x" in self.dataset_params["features"]:
             builder.append(LatLonBuilder(build_from="xy", projection=EuroPP()))
 
@@ -181,38 +186,117 @@ class AE(Abstract):
         self.log("hp/test_loss", loss)
         return x, l, x_hat, info
 
+    # def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
+    #     """FIXME: too messy."""
+    #     idx = 0
+    #     original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
+    #     length = int(outputs[0][1][idx].cpu().item())
+    #     reconstruct = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
+    #     data = np.concatenate((original, reconstruct), axis=0)
+    #     n_samples = data.shape[0]
+    #     data = data.reshape((n_samples, -1))
+    #     # remove padding
+    #     data = data[:, : length * len(self.dataset_params["features"])]
+    #     # reshape for unscaling
+    #     data = data.reshape((-1, len(self.dataset_params["features"])))
+    #     # unscale the data
+    #     if self.dataset_params["scaler"] is not None:
+    #         data = self.dataset_params["scaler"].inverse_transform(data)
+
+    #     data = data.reshape((n_samples, -1))
+    #     # add info if needed (init_features)
+    #     info_len = len(self.dataset_params["info_params"]["features"])
+    #     if info_len > 0:
+    #         info = outputs[0][3][idx].unsqueeze(0).cpu().numpy()
+    #         info = np.repeat(info, data.shape[0], axis=0)
+    #         data = np.concatenate((info, data), axis=1)
+    #     # get builder
+    #     builder = self.get_builder(
+    #         nb_samples=n_samples,
+    #         length=length,
+    #     )
+    #     features = [
+    #         "track" if "track" in f else f
+    #         for f in self.dataset_params["features"]
+    #     ]
+    #     # build traffic
+    #     traffic = traffic_from_data(
+    #         data,
+    #         features,
+    #         self.dataset_params["info_params"]["features"],
+    #         builder=builder,
+    #     )
+    #     # generate plot then send it to logger
+    #     self.logger.experiment.add_figure(
+    #         "original vs reconstructed", plot_traffic(traffic)
+    #     )
+
+    # def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
+    #     """FIXME: too messy."""
+    #     idx = 0
+    #     original = outputs[0][0][idx].unsqueeze(0).cpu()
+    #     length = int(outputs[0][1][idx].cpu().item())
+    #     reconstruct = outputs[0][2][idx].unsqueeze(0).cpu()
+    #     data = torch.cat((original, reconstruct), axis=0)
+    #     n_samples = data.size(0)
+    #     data = data.view((n_samples, -1))
+    #     # remove padding
+    #     data = data[:, : length * len(self.dataset_params["features"])]
+    #     # reshape for unscaling
+    #     data = data.reshape((-1, len(self.dataset_params["features"])))
+    #     # unscale the data
+    #     if self.dataset_params["scaler"] is not None:
+    #         data = self.dataset_params["scaler"].inverse_transform(data)
+
+    #     data = data.numpy().reshape((n_samples, -1))
+    #     # add info if needed (init_features)
+    #     info_len = len(self.dataset_params["info_params"]["features"])
+    #     if info_len > 0:
+    #         info = outputs[0][3][idx].unsqueeze(0).cpu().numpy()
+    #         info = np.repeat(info, data.shape[0], axis=0)
+    #         data = np.concatenate((info, data), axis=1)
+    #     # get builder
+    #     builder = self.get_builder(
+    #         nb_samples=n_samples,
+    #         length=length,
+    #     )
+    #     features = [
+    #         "track" if "track" in f else f
+    #         for f in self.dataset_params["features"]
+    #     ]
+    #     # build traffic
+    #     traffic = traffic_from_data(
+    #         data,
+    #         features,
+    #         self.dataset_params["info_params"]["features"],
+    #         builder=builder,
+    #     )
+    #     # generate plot then send it to logger
+    #     self.logger.experiment.add_figure(
+    #         "original vs reconstructed", plot_traffic(traffic)
+    #     )
+
     def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
         """FIXME: too messy."""
         idx = 0
-        original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
-        length = int(outputs[0][1][idx].cpu().item())
-        reconstruct = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
-        data = np.concatenate((original, reconstruct), axis=0)
-        n_samples = data.shape[0]
-        data = data.reshape((n_samples, -1))
-        # remove padding
-        data = data[:, : length * len(self.dataset_params["features"])]
-        # reshape for unscaling
-        data = data.reshape((-1, len(self.dataset_params["features"])))
+        original = outputs[0][0][idx].unsqueeze(0).cpu()
+        reconstructed = outputs[0][2][idx].unsqueeze(0).cpu()
+        data = torch.cat((original, reconstructed), dim=0)
+        data = data.reshape((data.shape[0], -1))
         # unscale the data
         if self.dataset_params["scaler"] is not None:
             data = self.dataset_params["scaler"].inverse_transform(data)
 
-        data = data.reshape((n_samples, -1))
+        data = data.numpy()
         # add info if needed (init_features)
-        info_len = len(self.dataset_params["info_params"]["features"])
-        if info_len > 0:
+        if len(self.dataset_params["info_params"]["features"]) > 0:
             info = outputs[0][3][idx].unsqueeze(0).cpu().numpy()
             info = np.repeat(info, data.shape[0], axis=0)
             data = np.concatenate((info, data), axis=1)
         # get builder
-        builder = self.get_builder(
-            nb_samples=n_samples,
-            length=length,
-        )
+        builder = self.get_builder(nb_samples=2, length=200)
         features = [
-            "track" if "track" in f else f
-            for f in self.dataset_params["features"]
+            "track" if "track" in f else f for f in self.hparams.features
         ]
         # build traffic
         traffic = traffic_from_data(

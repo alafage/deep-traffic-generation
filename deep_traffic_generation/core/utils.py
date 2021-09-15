@@ -1,24 +1,28 @@
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import traj_dist.distance as tdist
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from scipy.stats._distn_infrastructure import rv_continuous
-from sklearn.preprocessing import MinMaxScaler
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, random_split
 from torch.utils.data.dataset import Dataset
+from tqdm import tqdm
 from traffic.core import Traffic
 from traffic.core.projection import EuroPP
+
+from deep_traffic_generation.core.transforms import PyTMinMaxScaler
 
 from .protocols import BuilderProtocol
 
@@ -268,7 +272,8 @@ def cli_main(
         args.data_path,
         features=args.features,
         shape=data_shape,
-        scaler=MinMaxScaler(feature_range=(-1, 1)),
+        # scaler=MinMaxScaler(feature_range=(-1, 1)),
+        scaler=PyTMinMaxScaler(feature_range=(-1, 1)),
         info_params={"features": args.info_features, "index": args.info_index},
     )
     print(dataset.input_dim)
@@ -385,3 +390,108 @@ def plot_clusters(traffic: Traffic, cluster_label: str = "cluster") -> Figure:
 
 def unpad_sequence(padded: torch.Tensor, lengths: torch.Tensor) -> List:
     return [padded[i][: lengths[i]] for i in range(len(padded))]
+
+
+def compare_xy(reconstruct: Traffic, ref: Traffic) -> pd.DataFrame:
+    res = {}
+    for f1 in tqdm(reconstruct):
+        f2 = ref[f1.flight_id]
+        aligned = f2.aligned_on_ils("LSZH").next()
+        if aligned is None:
+            continue
+        f2 = f2.before(aligned.start)
+        f1 = f1.before(f1.stop)
+        f2 = f2.before(f1.stop)
+        if f1 is None or f2 is None:
+            continue
+
+        X1, X2 = (
+            f1.resample(50).data[["x", "y"]].to_numpy(),
+            f2.resample(50).data[["x", "y"]].to_numpy(),
+        )
+
+        res[f1.flight_id] = dict(
+            dtw=tdist.dtw(X1, X2),
+            edr=tdist.edr(X1, X2),
+            erp=tdist.erp(X1, X2, g=np.zeros(2, dtype=float)),
+            frechet=tdist.frechet(X1, X2),
+            hausdorff=tdist.hausdorff(X1, X2),
+            lcss=tdist.lcss(X1, X2),
+            sspd=tdist.sspd(X1, X2),
+        )
+
+    return pd.DataFrame(res).T
+
+
+def cumul_dist_plot(
+    df: pd.DataFrame, scales: Dict[Any, Tuple[float, float]], domain: List[str]
+):
+    alt.data_transformers.disable_max_rows()
+
+    base = alt.Chart(df)
+    legend_config = dict(
+        labelFontSize=12,
+        titleFontSize=13,
+        labelFont="Ubuntu",
+        titleFont="Ubuntu",
+        orient="none",
+        legendY=430
+        # offset=0,
+    )
+
+    chart = (
+        alt.vconcat(
+            *[
+                base.transform_window(
+                    cumulative_count="count()",
+                    sort=[{"field": col}],
+                    groupby=["generation", "reconstruction"],
+                )
+                .transform_joinaggregate(
+                    total="count()", groupby=["generation", "reconstruction"]
+                )
+                .transform_calculate(
+                    normalized=alt.datum.cumulative_count / alt.datum.total
+                )
+                .mark_line(clip=True)
+                .encode(
+                    alt.X(
+                        col,
+                        title="Distance",
+                        scale=alt.Scale(domain=scales[col]),
+                    ),
+                    alt.Y("normalized:Q", title="Cumulative ratio"),
+                    alt.Color(
+                        "generation",
+                        legend=alt.Legend(
+                            title="Generation method", **legend_config
+                        ),
+                        scale=alt.Scale(domain=domain),
+                    ),
+                    alt.StrokeDash(
+                        "reconstruction",
+                        legend=alt.Legend(
+                            title="Reconstruction method",
+                            legendX=200,
+                            **legend_config,
+                        ),
+                        scale=alt.Scale(
+                            domain=["Navigational points", "Douglas-Peucker"]
+                        ),
+                    ),
+                )
+                .properties(title=col.upper(), height=150)
+                for col in scales
+            ]
+        )
+        .configure_view(stroke=None)
+        .configure_title(font="Fira Sans", fontSize=16, anchor="start")
+        .configure_axis(
+            labelFont="Fira Sans",
+            labelFontSize=14,
+            titleFont="Ubuntu",
+            titleFontSize=12,
+        )
+    )
+
+    return chart

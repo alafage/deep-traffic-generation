@@ -3,6 +3,7 @@
 *.pth
 *.npy
 *.ckpt
+*.csv
 # lightning_logs/
 # VsCode settings
 .vscode

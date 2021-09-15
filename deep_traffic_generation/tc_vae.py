@@ -7,7 +7,9 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from deep_traffic_generation.core import TCN, VAE
-from deep_traffic_generation.core.datasets import DatasetParams, TrafficDataset
+from deep_traffic_generation.core.datasets import (
+    DatasetParams, TrafficDatasetOld
+)
 from deep_traffic_generation.core.utils import cli_main
 
 
@@ -212,4 +214,4 @@ class TCVAE(VAE):
 
 
 if __name__ == "__main__":
-    cli_main(TCVAE, TrafficDataset, "image", seed=42)
+    cli_main(TCVAE, TrafficDatasetOld, "image", seed=42)
