@@ -9,9 +9,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from deep_traffic_generation.core import TCN, VAE
-from deep_traffic_generation.core.datasets import (
-    DatasetParams, TrafficDatasetOld
-)
+from deep_traffic_generation.core.datasets import DatasetParams, TrafficDataset
 from deep_traffic_generation.core.losses import npa_loss
 from deep_traffic_generation.core.transforms import PyTMinMaxScaler
 from deep_traffic_generation.core.utils import cli_main
@@ -150,6 +148,13 @@ class TCVAENPA(VAE):
 
         self.navpts = navpts
 
+        self.features_idxs = np.where(
+            np.isin(
+                self.dataset_params["features"],
+                ["track", "groundspeed", "altitude", "timedelta"],
+            )
+        )[0]
+
         self.example_input_array = [
             torch.rand(
                 (
@@ -191,8 +196,16 @@ class TCVAENPA(VAE):
         z, (loc, std), x_hat = self.forward(x, l)
 
         # reconstruction loss
-        recon_loss = self.gaussian_likelihood(x_hat, x)
-        # recon_loss = -F.mse_loss(x, x_hat, reduce=False).sum(dim=(1, 2))
+        # recon_loss = self.gaussian_likelihood(
+        #     x_hat[:, self.features_idxs], x[:, self.features_idxs]
+        # )
+        recon_loss = F.mse_loss(
+            x[:, self.features_idxs],
+            x_hat[:, self.features_idxs],
+            reduction="none",
+        ).sum(dim=(1, 2))
+
+        mse_coef = 1e4
 
         # kullback-leibler divergence
         c_max = torch.Tensor([self.hparams.c_max])
@@ -212,7 +225,7 @@ class TCVAENPA(VAE):
                 x_hat[:, track_idx], idxs=track_idx
             )
         npa = npa_loss(
-            x_hat[
+            x[
                 :,
                 np.where(np.isin(self.dataset_params["features"], ["x", "y"]))[
                     0
@@ -223,12 +236,16 @@ class TCVAENPA(VAE):
             reduction="none",
         )
 
+        npa_coef = self.hparams.align_coef * self.hparams.align_gamma ** (
+            self.current_epoch // self.hparams.align_step
+        )
+
         # elbo with beta hyperparameter:
         #   Higher values enforce orthogonality between latent representation.
         elbo = (
             self.hparams.gamma * (kl - C).abs()
-            - recon_loss
-            + self.hparams.align_coef * npa
+            + mse_coef * recon_loss
+            + npa_coef * npa
         )
         elbo = elbo.mean()
 
@@ -244,6 +261,14 @@ class TCVAENPA(VAE):
         )
         return elbo
 
+    def validation_step(self, batch, batch_idx):
+        x, l, _ = batch
+        _, _, x_hat = self.forward(x, l)
+        loss = F.mse_loss(
+            x_hat[:, self.features_idxs], x[:, self.features_idxs]
+        )
+        self.log("hp/valid_loss", loss)
+
     def test_step(self, batch, batch_idx):
         x, l, info = batch
         loc, log_var = self.encoder(x, l)
@@ -254,10 +279,17 @@ class TCVAENPA(VAE):
 
         x_hat = self.out_activ(self.decoder(z, l))
 
-        loss = F.mse_loss(x_hat, x)
+        loss = F.mse_loss(
+            x_hat[:, self.features_idxs], x[:, self.features_idxs]
+        )
 
         self.log("hp/test_loss", loss)
-        return torch.transpose(x, 1, 2), l, torch.transpose(x_hat, 1, 2), info
+        return (
+            torch.transpose(x, 1, 2),
+            l,
+            torch.transpose(x_hat, 1, 2),
+            info,
+        )
 
     @classmethod
     def network_name(cls) -> str:
@@ -292,9 +324,18 @@ class TCVAENPA(VAE):
             type=float,
             default=0.1,
         )
+        parser.add_argument(
+            "--align_step",
+            dest="align_step",
+            type=int,
+            default=500,
+        )
+        parser.add_argument(
+            "--align_gamma", dest="align_gamma", type=float, default=1
+        )
 
         return parent_parser, parser
 
 
 if __name__ == "__main__":
-    cli_main(TCVAENPA, TrafficDatasetOld, "image", seed=42)
+    cli_main(TCVAENPA, TrafficDataset, "image", seed=42)

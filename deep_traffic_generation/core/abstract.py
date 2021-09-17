@@ -382,6 +382,7 @@ class VAE(AE):
         loc, log_var = self.encoder(x, lengths)
         # sample z from q(z|x)
         std = torch.exp(log_var / 2)
+
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
         # decode z
@@ -392,30 +393,24 @@ class VAE(AE):
         x, l, _ = batch
         z, (loc, std), x_hat = self.forward(x, l)
 
-        # reconstruction loss
-        recon_loss = self.gaussian_likelihood(x_hat, x)
-        # recon_loss = -F.mse_loss(x, x_hat, reduce=False).sum(dim=(1, 2))
+        # log likelihood loss (reconstruction loss)
+        llv_loss = -self.gaussian_likelihood(x_hat, x)
+        llv_coef = self.hparams.llv_coef
 
-        # kullback-leibler divergence
-        c_max = torch.Tensor([self.hparams.c_max])
-        C_max = nn.Parameter(c_max).to(self.device)
-        C = torch.clamp(
-            (C_max / self.hparams.c_stop_iter) * self.current_epoch,
-            0,
-            self.hparams.c_max,
-        )
-        kl = self.kl_divergence(z, loc, std)
+        # kullback-leibler divergence (regularization loss)
+        kld_loss = self.kl_divergence(z, loc, std)
+        kld_coef = self.hparams.kld_coef
 
         # elbo with beta hyperparameter:
         #   Higher values enforce orthogonality between latent representation.
-        elbo = self.hparams.gamma * (kl - C).abs() - recon_loss
+        elbo = kld_coef * kld_loss + llv_coef * llv_loss
         elbo = elbo.mean()
 
         self.log_dict(
             {
                 "train_loss": elbo,
-                "kl_loss": kl.mean(),
-                "recon_loss": recon_loss.mean(),
+                "kl_loss": kld_loss.mean(),
+                "recon_loss": llv_loss.mean(),
             }
         )
         return elbo
@@ -475,22 +470,13 @@ class VAE(AE):
     ) -> Tuple[ArgumentParser, _ArgumentGroup]:
         _, parser = super().add_model_specific_args(parent_parser)
         parser.add_argument(
-            "--gamma",
-            dest="gamma",
+            "--llv_coef",
+            dest="llv_coef",
             type=float,
-            default=1,
+            default=1.0,
         )
         parser.add_argument(
-            "--c_max",
-            dest="c_max",
-            type=int,
-            default=0,
-        )
-        parser.add_argument(
-            "--c_stop_iter",
-            dest="c_stop_iter",
-            type=int,
-            default=1,
+            "--kld_coef", dest="kld_coef", type=float, default=1.0
         )
         parser.add_argument("--scale", dest="scale", type=float, default=1.0)
 

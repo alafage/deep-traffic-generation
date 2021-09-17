@@ -7,9 +7,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from deep_traffic_generation.core import TCN, VAE
-from deep_traffic_generation.core.datasets import (
-    DatasetParams, TrafficDatasetOld
-)
+from deep_traffic_generation.core.datasets import DatasetParams, TrafficDataset
 from deep_traffic_generation.core.utils import cli_main
 
 
@@ -167,11 +165,63 @@ class TCVAE(VAE):
         # non-linear activations
         self.out_activ = LinearAct()
 
+        # previous loss
+        self.previous_mse_loss: Optional[torch.Tensor] = None
+
+    def training_step(self, batch, batch_idx):
+        x, l, _ = batch
+        z, (loc, std), x_hat = self.forward(x, l)
+
+        # log likelihood loss (reconstruction loss)
+        # llv_loss = -self.gaussian_likelihood(x_hat, x)
+        # llv_coef = self.hparams.llv_coef
+        HALF_LOG_TWO_PI = 0.91893
+        current_mse_loss = (
+            F.mse_loss(x_hat, x, reduction="none").sum(dim=[1, 2]).mean()
+        )
+        if self.previous_mse_loss is None:
+            mse_loss = current_mse_loss
+        else:
+            mse_loss = torch.min(
+                self.previous_mse_loss,
+                self.previous_mse_loss * 0.99 + current_mse_loss * 0.01,
+            )
+
+        mse_loss = mse_loss.detach()
+
+        self.previous_mse_loss = mse_loss
+
+        mse_coef = torch.sqrt(mse_loss)
+        recon_loss = (
+            current_mse_loss / (2 * (mse_coef ** 2))
+            + torch.log(mse_coef)
+            + HALF_LOG_TWO_PI
+        )
+
+        # kullback-leibler divergence (regularization loss)
+        kld_loss = self.kl_divergence(z, loc, std)
+        kld_coef = self.hparams.kld_coef
+
+        # elbo with beta hyperparameter:
+        #   Higher values enforce orthogonality between latent representation.
+        elbo = kld_coef * kld_loss + recon_loss
+        elbo = elbo.mean()
+
+        self.log_dict(
+            {
+                "train_loss": elbo,
+                "kl_loss": kld_loss.mean(),
+                "recon_loss": recon_loss,
+            }
+        )
+        return elbo
+
     def test_step(self, batch, batch_idx):
         x, l, info = batch
         loc, log_var = self.encoder(x, l)
 
         std = torch.exp(log_var / 2)
+
         q = torch.distributions.Normal(loc, std)
         z = q.rsample()
 
@@ -214,4 +264,4 @@ class TCVAE(VAE):
 
 
 if __name__ == "__main__":
-    cli_main(TCVAE, TrafficDatasetOld, "image", seed=42)
+    cli_main(TCVAE, TrafficDataset, "image", seed=42)
