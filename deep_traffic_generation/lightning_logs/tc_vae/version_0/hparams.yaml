@@ -7,8 +7,6 @@ auto_scale_batch_size: false
 auto_select_gpus: false
 batch_size: 1000
 benchmark: false
-c_max: 0
-c_stop_iter: 1
 check_val_every_n_epoch: 1
 checkpoint_callback: true
 data_path: !!python/object/apply:pathlib.PosixPath
@@ -16,6 +14,7 @@ data_path: !!python/object/apply:pathlib.PosixPath
 - traffic_15.pkl
 default_root_dir: null
 deterministic: false
+devices: null
 dilation_base: 2
 distributed_backend: null
 dropout: 0.0
@@ -27,8 +26,8 @@ features:
 - groundspeed
 - altitude
 - timedelta
+fix_prior: true
 flush_logs_every_n_steps: 100
-gamma: 1
 gpus: 1
 gradient_clip_algorithm: norm
 gradient_clip_val: 0.0
@@ -36,28 +35,33 @@ h_dims:
 - 16
 - 16
 - 16
-init_features:
+info_features:
 - latitude
 - longitude
+info_index: -1
+ipus: null
 kernel_size: 16
+kld_coef: 1.0
 label: null
-learning_rate: 0.001
 limit_predict_batches: 1.0
 limit_test_batches: 1.0
 limit_train_batches: 1.0
 limit_val_batches: 1.0
+llv_coef: 1.0
 log_every_n_steps: 50
 log_gpu_memory: null
 logger: true
+lr: 0.001
 lr_gamma: 1.0
 lr_step_size: 100
-max_epochs: 3000
+max_epochs: 500
 max_steps: null
 max_time: null
 min_epochs: null
 min_steps: null
 move_metrics_to_cpu: false
 multiple_trainloader_mode: max_size_cycle
+n_components: 1
 navpts: false
 network_name: tc_vae
 num_nodes: 1
@@ -71,6 +75,7 @@ process_position: 0
 profiler: null
 progress_bar_refresh_rate: null
 reload_dataloaders_every_epoch: false
+reload_dataloaders_every_n_epochs: 0
 replace_sampler_ddp: true
 resume_from_checkpoint: null
 sampling_factor: 10

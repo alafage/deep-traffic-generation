@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from pytorch_lightning import LightningModule
 from pytorch_lightning.utilities.types import EPOCH_OUTPUT
+from torch.distributions.distribution import Distribution
 from torch.nn import functional as F
 from traffic.core.projection import EuroPP
 
@@ -20,8 +21,31 @@ from .utils import plot_traffic, traffic_from_data
 
 
 # fmt: on
+class LSR(nn.Module):
+    """Abstract class for Latent Space Regularization."""
+
+    def __init__(self, input_dim: int, out_dim: int, fix_prior: bool = True):
+        super().__init__()
+
+        self.input_dim = input_dim
+        self.out_dim = out_dim
+        self.fix_prior = fix_prior
+
+    def forward(self, hidden: torch.Tensor) -> Distribution:
+        raise NotImplementedError()
+
+    def dist_params(self, p: Distribution) -> Tuple:
+        raise NotImplementedError()
+
+    def get_posterior(self, dist_params: Tuple) -> Distribution:
+        raise NotImplementedError()
+
+    def get_prior(self, batch_size) -> Distribution:
+        raise NotImplementedError()
+
+
 class Abstract(LightningModule):
-    """Abstract class for deep models"""
+    """Abstract class for deep models."""
 
     _required_hparams = [
         "lr",
@@ -125,7 +149,7 @@ class Abstract(LightningModule):
 
 
 class AE(Abstract):
-    """Abstract class for Autoencoders"""
+    """Abstract class for Autoencoders."""
 
     _required_hparams = Abstract._required_hparams + [
         "encoding_dim",
@@ -185,51 +209,6 @@ class AE(Abstract):
         loss = F.mse_loss(x_hat, x)
         self.log("hp/test_loss", loss)
         return x, l, x_hat, info
-
-    # def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-    #     """FIXME: too messy."""
-    #     idx = 0
-    #     original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
-    #     length = int(outputs[0][1][idx].cpu().item())
-    #     reconstruct = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
-    #     data = np.concatenate((original, reconstruct), axis=0)
-    #     n_samples = data.shape[0]
-    #     data = data.reshape((n_samples, -1))
-    #     # remove padding
-    #     data = data[:, : length * len(self.dataset_params["features"])]
-    #     # reshape for unscaling
-    #     data = data.reshape((-1, len(self.dataset_params["features"])))
-    #     # unscale the data
-    #     if self.dataset_params["scaler"] is not None:
-    #         data = self.dataset_params["scaler"].inverse_transform(data)
-
-    #     data = data.reshape((n_samples, -1))
-    #     # add info if needed (init_features)
-    #     info_len = len(self.dataset_params["info_params"]["features"])
-    #     if info_len > 0:
-    #         info = outputs[0][3][idx].unsqueeze(0).cpu().numpy()
-    #         info = np.repeat(info, data.shape[0], axis=0)
-    #         data = np.concatenate((info, data), axis=1)
-    #     # get builder
-    #     builder = self.get_builder(
-    #         nb_samples=n_samples,
-    #         length=length,
-    #     )
-    #     features = [
-    #         "track" if "track" in f else f
-    #         for f in self.dataset_params["features"]
-    #     ]
-    #     # build traffic
-    #     traffic = traffic_from_data(
-    #         data,
-    #         features,
-    #         self.dataset_params["info_params"]["features"],
-    #         builder=builder,
-    #     )
-    #     # generate plot then send it to logger
-    #     self.logger.experiment.add_figure(
-    #         "original vs reconstructed", plot_traffic(traffic)
-    #     )
 
     # def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
     #     """FIXME: too messy."""
@@ -310,38 +289,6 @@ class AE(Abstract):
             "original vs reconstructed", plot_traffic(traffic)
         )
 
-    # def test_epoch_end(self, outputs: EPOCH_OUTPUT) -> None:
-    #     """FIXME: too messy."""
-    #     idx = 0
-    #     original = outputs[0][0][idx].unsqueeze(0).cpu().numpy()
-    #     reconstructed = outputs[0][2][idx].unsqueeze(0).cpu().numpy()
-    #     data = np.concatenate((original, reconstructed), axis=0)
-    #     data = data.reshape((data.shape[0], -1))
-    #     # unscale the data
-    #     if self.dataset_params["scaler"] is not None:
-    #         data = self.dataset_params["scaler"].inverse_transform(data)
-    #     # add info if needed (init_features)
-    #     if len(self.dataset_params["info_params"]["features"]) > 0:
-    #         info = outputs[0][3][idx].unsqueeze(0).cpu().numpy()
-    #         info = np.repeat(info, data.shape[0], axis=0)
-    #         data = np.concatenate((info, data), axis=1)
-    #     # get builder
-    #     builder = self.get_builder(nb_samples=2, length=200)
-    #     features = [
-    #         "track" if "track" in f else f for f in self.hparams.features
-    #     ]
-    #     # build traffic
-    #     traffic = traffic_from_data(
-    #         data,
-    #         features,
-    #         self.dataset_params["info_params"]["features"],
-    #         builder=builder,
-    #     )
-    #     # generate plot then send it to logger
-    #     self.logger.experiment.add_figure(
-    #         "original vs reconstructed", plot_traffic(traffic)
-    #     )
-
     @classmethod
     def add_model_specific_args(
         cls,
@@ -366,7 +313,14 @@ class AE(Abstract):
 
 
 class VAE(AE):
-    """Abstract class for Variational Autoencoder"""
+    """Abstract class for Variational Autoencoder."""
+
+    _required_hparams = AE._required_hparams + [
+        "kld_coef",
+        "llv_coef",
+        "scale",
+        "fix_prior",
+    ]
 
     def __init__(
         self,
@@ -377,28 +331,30 @@ class VAE(AE):
 
         self.scale = nn.Parameter(torch.Tensor([self.hparams.scale]))
 
-    def forward(self, x, lengths):
-        # encode x to get the location and log variance parameters
-        loc, log_var = self.encoder(x, lengths)
-        # sample z from q(z|x)
-        std = torch.exp(log_var / 2)
+        # reparametrization trick
+        self.lsr: LSR
 
-        q = torch.distributions.Normal(loc, std)
+    def forward(self, x, lengths) -> Tuple[Tuple, torch.Tensor, torch.Tensor]:
+        # encode x to get the location and log variance parameters
+        h = self.encoder(x, lengths)
+        q = self.lsr(h)
         z = q.rsample()
         # decode z
         x_hat = self.out_activ(self.decoder(z, lengths))
-        return z, (loc, std), x_hat
+        return self.lsr.dist_params(q), z, x_hat
 
     def training_step(self, batch, batch_idx):
         x, l, _ = batch
-        z, (loc, std), x_hat = self.forward(x, l)
+        dist_params, z, x_hat = self.forward(x, l)
 
         # log likelihood loss (reconstruction loss)
         llv_loss = -self.gaussian_likelihood(x_hat, x)
         llv_coef = self.hparams.llv_coef
 
         # kullback-leibler divergence (regularization loss)
-        kld_loss = self.kl_divergence(z, loc, std)
+        q_zx = self.lsr.get_posterior(dist_params)
+        p_z = self.lsr.get_prior(z.size(0))
+        kld_loss = self.kl_divergence(z, q_zx, p_z)
         kld_coef = self.hparams.kld_coef
 
         # elbo with beta hyperparameter:
@@ -428,7 +384,7 @@ class VAE(AE):
         self.log("hp/test_loss", loss)
         return x, l, x_hat, info
 
-    def gaussian_likelihood(self, x_hat, x):
+    def gaussian_likelihood(self, x_hat: torch.Tensor, x: torch.Tensor):
         mean = x_hat
         dist = torch.distributions.Normal(mean, self.scale)
         # measure prob of seeing trajectory under p(x|z)
@@ -436,33 +392,29 @@ class VAE(AE):
         dims = [i for i in range(1, len(x.size()))]
         return log_pxz.sum(dim=dims)
 
-    def kl_divergence(self, z, loc, std):
-        """Monte carlo KL divergence
+    def kl_divergence(
+        self, z: torch.Tensor, p: Distribution, q: Distribution
+    ) -> torch.Tensor:
+        """Compute Kullback-Leibler divergence :math:`KL(p || q)` between two
+        distributions, using Monte Carlo Estimation.
 
-        Parameters:
-        -----------
-        z: torch.Tensor
-            embbeding tensor
-        loc: torch.Tensor
-            location parameter for q.
-        std: torch.Tensor
-            standard deviation for q.
+        Args:
+            z (torch.Tensor): A sample from p.
+            p (Distribution): A :class:`~torch.distributions.Distribution`
+                object.
+            q (Distribution): A :class:`~torch.distributions.Distribution`
+                object.
+
+        Returns:
+            torch.Tensor: A batch of KL divergences of shape `z.size(0)`.
+
+        Notes:
+            Make sure that the `log_prob()` method of both Distribution
+            objects returns a 1D-tensor with the size of `z` batch size.
         """
-        # define the first two probabilities
-        p = torch.distributions.Normal(
-            torch.zeros_like(loc), torch.ones_like(std)
-        )
-        q = torch.distributions.Normal(loc, std)
-
-        # get q(z|x)
-        log_qzx = q.log_prob(z)
-        # get p(z)
-        log_pz = p.log_prob(z)
-
-        # kl
-        kl = log_qzx - log_pz
-        kl = kl.sum(-1)
-        return kl
+        log_p = p.log_prob(z)
+        log_q = q.log_prob(z)
+        return log_p - log_q
 
     @classmethod
     def add_model_specific_args(
@@ -479,12 +431,19 @@ class VAE(AE):
             "--kld_coef", dest="kld_coef", type=float, default=1.0
         )
         parser.add_argument("--scale", dest="scale", type=float, default=1.0)
+        parser.add_argument(
+            "--fix-prior", dest="fix_prior", action="store_true"
+        )
+        parser.add_argument(
+            "--no-fix-prior", dest="fix_prior", action="store_false"
+        )
+        parser.set_defaults(fix_prior=True)
 
         return parent_parser, parser
 
 
 class GAN(LightningModule):
-    """Abstract class for Generative Adversarial Network"""
+    """FIXME: Abstract class for Generative Adversarial Network."""
 
     _required_hparams = [
         "learning_rate",

@@ -316,10 +316,14 @@ def cli_main(
             args,
             callbacks=[checkpoint_callback, early_stopping],
             logger=tb_logger,
+            # deterministic=True,
         )
     else:
         trainer = Trainer.from_argparse_args(
-            args, callbacks=[checkpoint_callback], logger=tb_logger
+            args,
+            callbacks=[checkpoint_callback],
+            logger=tb_logger,
+            # deterministic=True,
         )
 
     if val_loader is not None:

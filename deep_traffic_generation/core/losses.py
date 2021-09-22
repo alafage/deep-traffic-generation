@@ -23,7 +23,7 @@ def npa_loss(
     reduction: str = "mean",
 ) -> torch.Tensor:
     """The Navigational Point Alignment loss.
-    FIXME: description
+    TODO: description
     Parameters:
     input: torch.Tensor
         Input tensor should be a 3D Tensor (N, H, L) with 3 features:
