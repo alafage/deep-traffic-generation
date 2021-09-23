@@ -276,7 +276,7 @@ def cli_main(
         scaler=PyTMinMaxScaler(feature_range=(-1, 1)),
         info_params={"features": args.info_features, "index": args.info_index},
     )
-    print(dataset.input_dim)
+
     train_loader, val_loader, test_loader = get_dataloaders(
         dataset,
         args.train_ratio,
