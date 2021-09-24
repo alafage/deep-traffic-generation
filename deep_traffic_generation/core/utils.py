@@ -8,7 +8,7 @@ import pandas as pd
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import traj_dist.distance as tdist
+# import traj_dist.distance as tdist
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from pytorch_lightning import LightningModule, Trainer

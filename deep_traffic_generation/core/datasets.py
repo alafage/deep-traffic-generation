@@ -4,7 +4,6 @@ from typing import Any, List, Optional, Tuple, TypedDict, Union
 
 import numpy as np
 import torch
-# from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 from traffic.core import Traffic
 
@@ -34,12 +33,15 @@ class TrafficDataset(Dataset):
     Args:
         traffic: Traffic object to extract data from.
         features: features to extract from traffic.
-        shape (optional): shape of datapoints.
-            tensor of shape `(feature, seq)` when ``'image'``.
-            tensor of shape :math:`(feature \times seq)` when
-            ``'linear'``.
-            tensor of shape `(seq, feature)` when ``'sequence'``.
-            Defaults to ``'sequence'``.
+        shape (optional): shape of datapoints when:
+
+            - ``'image'``: tensor of shape
+              :math:`(\\text{feature}, \\text{seq})`.
+            - ``'linear'``: tensor of shape
+              :math:`(\\text{feature} \\times \\text{seq})`.
+            - ``'sequence'``: tensor of shape
+              :math:`(\\text{seq}, \\text{feature})`. Defaults to
+              ``'sequence'``.
         scaler (optional): scaler to apply to the data. You may want to
             consider `StandardScaler()
             <https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.StandardScaler.html>`_.
@@ -140,6 +142,14 @@ class TrafficDataset(Dataset):
 
     @property
     def input_dim(self) -> int:
+        """Returns the size of datapoint's features.
+
+        .. warning::
+            If the `self.shape` is ``'linear'``, the returned size will be
+            :math:`\\text{feature_n} \\times \\text{sequence_len}`
+            since the temporal dimension is not taken into account with this
+            shape.
+        """
         if self.shape in ["linear", "sequence"]:
             return self.data.shape[-1]
         elif self.shape == "image":

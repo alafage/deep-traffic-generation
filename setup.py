@@ -12,9 +12,7 @@ setup(
     install_requires=[
         "pytorch-lightning",
         "traffic",
-        "torch",
-        "torchvision",
-        "numpy",
+        "numba",
     ],
     packages=find_packages(),
 )
