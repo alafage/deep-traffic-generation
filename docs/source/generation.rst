@@ -86,8 +86,11 @@ We want to generate more samples of the traffic displayed below.
     with plt.style.context("traffic"):
         ax = plt.axes(projection=EuroPP())
         t.plot(ax, alpha=0.1)
-        t.centroid(nb_samples=None, projection=EuroPP())
-        .plot(ax, color="red", alpha=1) 
+        (
+            t
+            .centroid(nb_samples=None, projection=EuroPP())
+            .plot(ax, color="red", alpha=1)
+        )
 
 .. image:: _static/original_traffic.png
     :align: center
