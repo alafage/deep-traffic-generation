@@ -112,7 +112,11 @@ class TCDecoder(nn.Module):
 class TCVAE(VAE):
     """Temporal Convolutional Variational Autoencoder
 
-    Source: http://www.gm.fh-koeln.de/ciopwebpub/Thill20a.d/bioma2020-tcn.pdf
+    Source:
+        Inspired from the architecture proposed in the paper `Time Series
+        Encodings with Temporal Convolutional Network
+        <http://www.gm.fh-koeln.de/ciopwebpub/Thill20a.d/bioma2020-tcn.pdf>`_
+        by Markus Thill, Wolfgang Konen and Thomas Bäck.
     """
 
     _required_hparams = VAE._required_hparams + [

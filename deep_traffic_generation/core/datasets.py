@@ -135,10 +135,21 @@ class TrafficDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, int, List[Any]]:
+        """Get item method, returns datapoint at some index.
+
+        Args:
+            index (int): An index. Should be :math:`<len(self)`.
+
+        Returns:
+            torch.Tensor: The trajectory data shaped accordingly to self.shape.
+            int: The length of the trajectory.
+            list: List of informations that could be needed like, labels or
+                original latitude and longitude values.
+        """
         infos = []
         if self.info_params["index"] is not None:
             infos = self.infos[index]
-        return self.data[index], 200, infos
+        return self.data[index], self.seq_len, infos
 
     @property
     def input_dim(self) -> int:
@@ -171,6 +182,16 @@ class TrafficDataset(Dataset):
 
     @property
     def parameters(self) -> DatasetParams:
+        """Returns parameters of the TrafficDataset object in a TypedDict.
+
+        * features (List[str])
+        * file_path (Path, optional)
+        * info_params (TypedDict) (see Infos for details)
+        * input_dim (int)
+        * scaler (Any object that matches TransformerProtocol, see TODO)
+        * seq_len (int)
+        * shape (str): either ``'image'``, ``'linear'`` or ```'sequence'``.
+        """
         return DatasetParams(
             features=self.features,
             file_path=self.file_path,

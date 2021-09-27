@@ -1,5 +1,5 @@
-deep_traffic_generation.core.TrafficDataset
-===========================================
+TrafficDataset
+==============
 
 .. autoclass:: deep_traffic_generation.core.TrafficDataset
     :members:

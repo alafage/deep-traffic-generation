@@ -13,6 +13,8 @@ setup(
         "pytorch-lightning",
         "traffic",
         "numba",
+        "sphinx",
+        "sphinx_rtd_theme",
     ],
     packages=find_packages(),
 )

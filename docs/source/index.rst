@@ -18,6 +18,7 @@ performances of deep generative models on the task of trajectory generation.
    installation
    quickstart
    core_structure
+   neural_networks
    generation
 
 Indices and tables

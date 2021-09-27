@@ -8,19 +8,17 @@ from torch.nn.utils import weight_norm
 
 # fmt: on
 class FCN(nn.Module):
-    """Fully-Connected Network
+    """Fully-Connected Network.
 
     Args:
-        input_dim: size of each input sample
-        out_dim: size of each output sample
-        h_dims: list of sizes for each hidden layer
+        input_dim: size of each input sample.
+        out_dim: size of each output sample.
+        h_dims: list of sizes for each hidden layer.
         h_activ (optional): activation function between
             each layer. Defaults to None.
         dropout (optional): if non-zero, introduces a Dropout layer on the
             outputs of each hidden layer except the last layer, with dropout
-            probability equal to :attr: `dropout`. Defaults to 0.0.
-
-    Inputs: input
+            probability equal to :attr: `dropout`. Defaults to :math:`0.0`.
     """
 
     def __init__(
@@ -52,11 +50,12 @@ class FCN(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
+        """Forward pass through the network."""
         return self.layers(x)
 
 
 class RNN(nn.Module):
-    """Recurrent Network (LSTM based)"""
+    """Recurrent Neural Network (LSTM based)"""
 
     def __init__(
         self,
@@ -86,7 +85,7 @@ class RNN(nn.Module):
         self.dropout = dropout
 
     def forward(self, x):
-        """FIXME: enable dropout"""
+        """Forward pass through the network."""
         for layer in self.layers:
             x, (h_n, c_n) = layer(x)
 
@@ -192,37 +191,34 @@ class ResidualBlock(nn.Module):
 class TCN(nn.Module):
     """Temporal Convolutional Network.
 
-    Handle data shaped (N, C, L) with N the batch size, C the number
-    of channels and L the length of signal sequence.
+    Handle data shaped :math:`(N, C, L)` with :math:`N` the batch size,
+    :math:`C` the number of channels and :math:`L` the length of signal
+    sequence.
 
-    Parameters
-    ----------
-    input_dim: int
-        Number of channels in the input sequence.
-    out_dim: int
-        Number of channels produced by the network.
-    h_dims:  List[int]
-        Number of channels outputed by the hidden layers.
-    kernel_size: int
-        Size of the convolving kernel
-    dilation_base: int
-        Size of the dilation base to compute the dilation of a specific layer.
-    activation: torch.nn.Module
-        Activation function to use within temporal blocks.
-    dropout: float (default=0.2)
-        probability of an element to be zeroed.
+    Source:
+        Adaptation from the code source of the paper `An Empirical Evaluation
+        of Generic Convolutional and Recurrent Networks for Sequence Modeling
+        <https://arxiv.org/abs/1803.01271>`_ by Shaojie Bai, J. Zico Kolter and
+        Vladlen Koltun.
 
-    Source
-    ------
-    Adaptation from the code source of the paper `An Empirical Evaluation of
-    Generic Convolutional and Recurrent Networks for Sequence Modeling` by
-    Shaojie Bai, J. Zico Kolter and Vladlen Koltun.
-    See https://arxiv.org/abs/1803.01271
+    Args:
+        input_dim (int): number of channels in the input sequence.
+        out_dim (int): number of channels produced by the network.
+        h_dims (List[int]): number of channels outputed by the hidden layers.
+        kernel_size (int): size of the convolving kernel.
+        dilation_base (int): size of the dilation base to compute the dilation
+            of a specific layer.
+        activation (torch.nn.Module): activation function to use within
+            temporal blocks.
+        dropout (float, optional): probability of an element to be zeroed.
+            Default :math:`0.2`.
 
-    Notes
-    -----
-    Keep the kernel size at least as big as the dilation base to avoid any
-    holes in your receptive field.
+    .. note::
+        Keep the kernel size at least as big as the dilation base to avoid any
+        holes in your receptive field i.e.
+
+        .. math::
+            \\text{kernel_size} \\geq \\text{dilatation_base}
     """
 
     def __init__(
@@ -259,4 +255,5 @@ class TCN(nn.Module):
         self.network = nn.Sequential(*layers)
 
     def forward(self, x):
+        """Forward pass through the network."""
         return self.network(x)

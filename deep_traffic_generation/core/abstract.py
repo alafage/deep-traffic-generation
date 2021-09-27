@@ -149,7 +149,24 @@ class Abstract(LightningModule):
 
 
 class AE(Abstract):
-    """Abstract class for Autoencoders."""
+    """Abstract class for Autoencoders.
+
+    Usage Example:
+        .. code:: python
+
+            import torch.nn as nn
+            from deep_traffic_generation.core import AE
+
+            class YourAE(AE):
+                def __init__(self, dataset_params, config):
+                    super().__init__(dataset_params, config)
+
+                    # Define encoder
+                    self.encoder = nn.Linear(64, 16)
+
+                    # Define decoder
+                    self.decoder = nn.Linear(16, 64)
+    """
 
     _required_hparams = Abstract._required_hparams + [
         "encoding_dim",
@@ -166,6 +183,7 @@ class AE(Abstract):
         self.out_activ: nn.Module
 
     def configure_optimizers(self) -> dict:
+        """Optimizers."""
         # optimizer
         optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
         # learning rate scheduler
@@ -191,6 +209,11 @@ class AE(Abstract):
         return z, x_hat
 
     def training_step(self, batch, batch_idx):
+        """Training step.
+
+        The validation loss is the Mean Square Error
+        :math:`\\mathcal{L}_{MSE}(x_{i}, \\hat{x_{i}})`.
+        """
         x, l, _ = batch
         _, x_hat = self.forward(x, l)
         loss = F.mse_loss(x_hat, x)
@@ -198,12 +221,22 @@ class AE(Abstract):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        """Validation step.
+
+        The validation loss is the Mean Square Error
+        :math:`\\mathcal{L}_{MSE}(x_{i}, \\hat{x_{i}})`.
+        """
         x, l, _ = batch
         _, x_hat = self.forward(x, l)
         loss = F.mse_loss(x_hat, x)
         self.log("hp/valid_loss", loss)
 
     def test_step(self, batch, batch_idx):
+        """Test step.
+
+        The test loss is the Mean Square Error
+        :math:`\\mathcal{L}_{MSE}(x_{i}, \\hat{x_{i}})`.
+        """
         x, l, info = batch
         _, x_hat = self.forward(x, l)
         loss = F.mse_loss(x_hat, x)
@@ -313,7 +346,37 @@ class AE(Abstract):
 
 
 class VAE(AE):
-    """Abstract class for Variational Autoencoder."""
+    """Abstract class for Variational Autoencoder. Adaptation of the VAE
+    presented by William Falcon in `Variational Autoencoder Demystified With
+    PyTorch Implementation
+    <https://towardsdatascience.com/variational-autoencoder-demystified-with-pytorch-implementation-3a06bee395ed>`_.
+
+    Usage Example:
+        .. code:: python
+
+            import torch.nn as nn
+            from deep_traffic_generation.core import GaussianMixtureLSR, VAE
+
+            class YourVAE(VAE):
+                def __init__(self, dataset_params, config):
+                    super().__init__(dataset_parms, config)
+
+                    # Define encoder
+                    self.encoder = nn.Linear(64, 32)
+
+                    # Example of latent space regularization
+                    self.lsr = GaussianMixtureLSR(
+                        input_dim=32,
+                        out_dim=16
+                    )
+
+                    # Define decoder
+                    self.decoder = nn.Sequential(
+                        nn.Linear(16, 32),
+                        nn.ReLU(),
+                        nn.Linear(32, 64)
+                    )
+    """
 
     _required_hparams = AE._required_hparams + [
         "kld_coef",
@@ -331,7 +394,7 @@ class VAE(AE):
 
         self.scale = nn.Parameter(torch.Tensor([self.hparams.scale]))
 
-        # reparametrization trick
+        # Latent Space Regularization
         self.lsr: LSR
 
     def forward(self, x, lengths) -> Tuple[Tuple, torch.Tensor, torch.Tensor]:
@@ -344,11 +407,21 @@ class VAE(AE):
         return self.lsr.dist_params(q), z, x_hat
 
     def training_step(self, batch, batch_idx):
+        """Training step.
+
+        Computes the gaussian likelihood and the Kullback-Leibler divergence
+        to get the ELBO loss function.
+
+        .. math::
+
+            \\mathcal{L}_{ELBO} = KL(q(z|x) || p(z))
+            - \\sum_{i=0}^{N} log(p(x_{i}|z_{i}))
+        """
         x, l, _ = batch
         dist_params, z, x_hat = self.forward(x, l)
 
         # log likelihood loss (reconstruction loss)
-        llv_loss = -self.gaussian_likelihood(x_hat, x)
+        llv_loss = -self.gaussian_likelihood(x, x_hat)
         llv_coef = self.hparams.llv_coef
 
         # kullback-leibler divergence (regularization loss)
@@ -384,7 +457,23 @@ class VAE(AE):
         self.log("hp/test_loss", loss)
         return x, l, x_hat, info
 
-    def gaussian_likelihood(self, x_hat: torch.Tensor, x: torch.Tensor):
+    def gaussian_likelihood(self, x: torch.Tensor, x_hat: torch.Tensor):
+        """Computes the gaussian likelihood.
+
+        Args:
+            x (torch.Tensor): input data
+            x_hat (torch.Tensor): mean decoded from :math:`z`.
+
+        .. math::
+
+            \\sum_{i=0}^{N} log(p(x_{i}|z_{i}))
+            \\text{ with } p(.|z_{i})
+            \\sim \\mathcal{N}(\\hat{x_{i}},\\,\\sigma^{2})
+
+        .. note::
+            The scale :math:`\\sigma` can be defined in config and will be
+            accessible with ``self.scale``.
+        """
         mean = x_hat
         dist = torch.distributions.Normal(mean, self.scale)
         # measure prob of seeing trajectory under p(x|z)
@@ -395,8 +484,8 @@ class VAE(AE):
     def kl_divergence(
         self, z: torch.Tensor, p: Distribution, q: Distribution
     ) -> torch.Tensor:
-        """Compute Kullback-Leibler divergence :math:`KL(p || q)` between two
-        distributions, using Monte Carlo Estimation.
+        """Computes Kullback-Leibler divergence :math:`KL(p || q)` between two
+        distributions, using Monte Carlo Sampling.
 
         Args:
             z (torch.Tensor): A sample from p.
@@ -408,7 +497,7 @@ class VAE(AE):
         Returns:
             torch.Tensor: A batch of KL divergences of shape `z.size(0)`.
 
-        Notes:
+        .. note::
             Make sure that the `log_prob()` method of both Distribution
             objects returns a 1D-tensor with the size of `z` batch size.
         """
