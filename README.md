@@ -20,19 +20,25 @@ Conference
  
 ## Description   
 
-Package that provides neural networks (mostly autoencoders) to embed and generate traffic trajectories.
+Package that provides neural networks (mostly autoencoders) to embed and generate traffic trajectories. This project relies on [traffic](https://traffic-viz.github.io/) and [Pytorch-Lightning](https://www.pytorchlightning.ai/) libraries.
 
-## How to run   
-First, install dependencies   
+## Installation
+
 ```bash
+# create new python environment for traffic
+conda create -n traffic -c conda-forge python=3.9 traffic
+conda activate traffic
+
 # clone project   
 git clone https://github.com/alafage/deep-traffic-generation
 
-# install project   
-cd deep-traffic-generation 
-pip install -e .
- ```   
- Next, navigate to any file and run it.   
+# install project
+cd deep-traffic-generation
+pip install .
+```
+
+## How to run   
+ Navigate to any python file in `deep_traffic_generation` and run it.   
  ```bash
 # module folder
 cd deep_traffic_generation
@@ -49,29 +55,14 @@ You can use Tensorboard to visualize training logs.
 tensorboard --logdir lightning_logs
 ```
 
-## Traffic Dataset
+## Documentation
 
-This project provides a custom dataset to handle trajectories with PyTorch.
+Is provided along this project a documentation generated using [Sphinx](https://www.sphinx-doc.org). Here the commands to generate it. Navigate to the `docs` folder and do:
 
-## Imports
-This project is setup as a package which means you can now easily import any file into any other file like so:
-```python
-from deep_traffic_generation.linear_ae import Linear_AE
-from pytorch_lightning import Trainer
-
-# model
-model = LinearAE()
-
-# data
-train, val, test = ...
-
-# train
-trainer = Trainer()
-trainer.fit(model, train, val)
-
-# test using the best model!
-trainer.test(test_dataloaders=test)
+```bash
+make html
 ```
+
 <!--
 ### Citation   
 ```

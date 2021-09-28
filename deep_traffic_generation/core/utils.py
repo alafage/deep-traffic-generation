@@ -1,3 +1,4 @@
+# fmt: off
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -9,6 +10,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 # import traj_dist.distance as tdist
+# from tqdm import tqdm
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from pytorch_lightning import LightningModule, Trainer
@@ -18,7 +20,6 @@ from scipy.stats._distn_infrastructure import rv_continuous
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, random_split
 from torch.utils.data.dataset import Dataset
-from tqdm import tqdm
 from traffic.core import Traffic
 from traffic.core.projection import EuroPP
 
@@ -29,6 +30,7 @@ from .protocols import BuilderProtocol
 # from deep_traffic_generation.core.datasets import TrafficDataset
 
 
+# fmt: on
 def extract_features(
     traffic: Traffic,
     features: List[str],
@@ -177,8 +179,8 @@ def plot_traffic(traffic: Traffic) -> Figure:
 def init_hidden(
     x: torch.Tensor, hidden_size: int, num_dir: int = 1, xavier: bool = True
 ):
-    """
-    Initialize hidden.
+    """Initialize hidden.
+
     Args:
         x: (torch.Tensor): input tensor
         hidden_size: (int):
@@ -396,35 +398,35 @@ def unpad_sequence(padded: torch.Tensor, lengths: torch.Tensor) -> List:
     return [padded[i][: lengths[i]] for i in range(len(padded))]
 
 
-def compare_xy(reconstruct: Traffic, ref: Traffic) -> pd.DataFrame:
-    res = {}
-    for f1 in tqdm(reconstruct):
-        f2 = ref[f1.flight_id]
-        aligned = f2.aligned_on_ils("LSZH").next()
-        if aligned is None:
-            continue
-        f2 = f2.before(aligned.start)
-        f1 = f1.before(f1.stop)
-        f2 = f2.before(f1.stop)
-        if f1 is None or f2 is None:
-            continue
+# def compare_xy(reconstruct: Traffic, ref: Traffic) -> pd.DataFrame:
+#     res = {}
+#     for f1 in tqdm(reconstruct):
+#         f2 = ref[f1.flight_id]
+#         aligned = f2.aligned_on_ils("LSZH").next()
+#         if aligned is None:
+#             continue
+#         f2 = f2.before(aligned.start)
+#         f1 = f1.before(f1.stop)
+#         f2 = f2.before(f1.stop)
+#         if f1 is None or f2 is None:
+#             continue
 
-        X1, X2 = (
-            f1.resample(50).data[["x", "y"]].to_numpy(),
-            f2.resample(50).data[["x", "y"]].to_numpy(),
-        )
+#         X1, X2 = (
+#             f1.resample(50).data[["x", "y"]].to_numpy(),
+#             f2.resample(50).data[["x", "y"]].to_numpy(),
+#         )
 
-        res[f1.flight_id] = dict(
-            dtw=tdist.dtw(X1, X2),
-            edr=tdist.edr(X1, X2),
-            erp=tdist.erp(X1, X2, g=np.zeros(2, dtype=float)),
-            frechet=tdist.frechet(X1, X2),
-            hausdorff=tdist.hausdorff(X1, X2),
-            lcss=tdist.lcss(X1, X2),
-            sspd=tdist.sspd(X1, X2),
-        )
+#         res[f1.flight_id] = dict(
+#             dtw=tdist.dtw(X1, X2),
+#             edr=tdist.edr(X1, X2),
+#             erp=tdist.erp(X1, X2, g=np.zeros(2, dtype=float)),
+#             frechet=tdist.frechet(X1, X2),
+#             hausdorff=tdist.hausdorff(X1, X2),
+#             lcss=tdist.lcss(X1, X2),
+#             sspd=tdist.sspd(X1, X2),
+#         )
 
-    return pd.DataFrame(res).T
+#     return pd.DataFrame(res).T
 
 
 def cumul_dist_plot(
