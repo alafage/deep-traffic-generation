@@ -37,6 +37,7 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx.ext.githubpages",
     "matplotlib.sphinxext.plot_directive",
+    "sphinx_copybutton",
 ]
 
 # Add any paths that contain templates here, relative to this directory.

@@ -15,6 +15,8 @@ setup(
         "numba",
         "sphinx",
         "sphinx_rtd_theme",
+        "sphinx-copybutton",
+        "pyvinecopulib",
     ],
     packages=find_packages(),
 )

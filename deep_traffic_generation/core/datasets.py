@@ -1,4 +1,5 @@
 # fmt: off
+from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, TypedDict, Union
 
@@ -86,12 +87,13 @@ class TrafficDataset(Dataset):
         data = np.stack(
             list(f.data[self.features].values.ravel() for f in traffic)
         )
-        data = torch.FloatTensor(data)
 
         self.scaler = scaler
         if self.scaler is not None:
             self.scaler = self.scaler.fit(data)
             data = self.scaler.transform(data)
+
+        data = torch.FloatTensor(data)
 
         self.data = data
         if self.shape in ["sequence", "image"]:
@@ -149,7 +151,7 @@ class TrafficDataset(Dataset):
         infos = []
         if self.info_params["index"] is not None:
             infos = self.infos[index]
-        return self.data[index], self.seq_len, infos
+        return self.data[index], infos
 
     @property
     def input_dim(self) -> int:
@@ -211,3 +213,72 @@ class TrafficDataset(Dataset):
             body += [repr(self.scaler)]
         lines = [head] + [" " * self._repr_indent + line for line in body]
         return "\n".join(lines)
+
+    @classmethod
+    def add_argparse_args(cls, parser: ArgumentParser) -> ArgumentParser:
+        """Adds TrafficDataset arguments to ArgumentParser.
+
+        List of arguments:
+
+            * ``--data_path``: The path to the traffic data file. Default to
+              None.
+            * ``--features``: The features to keep for training. Default to
+              ``['latitude','longitude','altitude','timedelta']``.
+
+              Usage:
+
+              .. code-block:: console
+
+                python main.py --features track groundspeed altitude timedelta
+
+            * ``--info_features``: Features not passed through the model but
+              useful to keep. For example, if you chose as main features:
+              track, groundspeed, altitude and timedelta ; it might help to
+              keep the latitude and longitude values of the first or last
+              coordinates to reconstruct the trajectory. The values are picked
+              up at the index specified at ``--info_index``. You can also
+              get some labels.
+
+              Usage:
+
+              .. code-block:: console
+
+                python main.py --info_features latitude longitude
+
+                python main.py --info_features label
+
+            * ``--info_index``: Index of information features. Default to None.
+
+        Args:
+            parser (ArgumentParser): ArgumentParser to update.
+
+        Returns:
+            ArgumentParser: updated ArgumentParser with TrafficDataset
+            arguments.
+        """
+        p = parser.add_argument_group("TrafficDataset")
+        p.add_argument(
+            "--data_path",
+            dest="data_path",
+            type=Path,
+            default=None,
+        )
+        p.add_argument(
+            "--features",
+            dest="features",
+            nargs="+",
+            default=["latitude", "longitude", "altitude", "timedelta"],
+        )
+        p.add_argument(
+            "--info_features",
+            dest="info_features",
+            nargs="+",
+            default=[],
+        )
+        p.add_argument(
+            "--info_index",
+            dest="info_index",
+            type=int,
+            default=None,
+        )
+        return parser

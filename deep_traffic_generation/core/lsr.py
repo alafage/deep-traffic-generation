@@ -78,6 +78,8 @@ class NormalLSR(LSR):
 class GaussianMixtureLSR(LSR):
     """Gaussian Mixture Latent Space Regularization.
 
+    Neural networks for Gaussian Mixture reparametrization.
+
     Args:
         input_dim (int): [description]
         out_dim (int): [description]

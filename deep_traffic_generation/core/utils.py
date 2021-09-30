@@ -1,29 +1,21 @@
 # fmt: off
-from argparse import ArgumentParser
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import altair as alt
 import numpy as np
 import pandas as pd
-import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 # import traj_dist.distance as tdist
 # from tqdm import tqdm
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
-from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
 from scipy.stats._distn_infrastructure import rv_continuous
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, random_split
 from torch.utils.data.dataset import Dataset
 from traffic.core import Traffic
 from traffic.core.projection import EuroPP
-
-from deep_traffic_generation.core.transforms import PyTMinMaxScaler
 
 from .protocols import BuilderProtocol
 
@@ -192,152 +184,6 @@ def init_hidden(
             torch.zeros(num_dir, x.size(0), hidden_size)
         ).to(x.device)
     return Variable(torch.zeros(num_dir, x.size(0), hidden_size)).to(x.device)
-
-
-def cli_main(
-    cls: LightningModule,
-    dataset_cls: Dataset,
-    data_shape: str,
-    seed: int = 42,
-) -> None:
-    pl.seed_everything(seed, workers=True)
-    # ------------
-    # args
-    # ------------
-    parser = ArgumentParser()
-    parser.add_argument(
-        "--data_path",
-        dest="data_path",
-        type=Path,
-        default=Path("./data/denoised_v3.pkl").absolute(),
-    )
-    parser.add_argument(
-        "--features",
-        dest="features",
-        nargs="+",
-        default=["latitude", "longitude", "altitude", "timedelta"],
-    )
-    parser.add_argument(
-        "--info_features",
-        dest="info_features",
-        nargs="+",
-        default=[],
-    )
-    parser.add_argument(
-        "--info_index",
-        dest="info_index",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--label",
-        dest="label",
-        type=str,
-        default=None,
-    )
-    parser.add_argument("--navpts", dest="navpts", action="store_true")
-    parser.add_argument("--no_navpts", dest="navpts", action="store_false")
-    parser.set_defaults(navpts=False)
-    parser.add_argument(
-        "--train_ratio", dest="train_ratio", type=float, default=0.8
-    )
-    parser.add_argument(
-        "--val_ratio", dest="val_ratio", type=float, default=0.2
-    )
-    parser.add_argument(
-        "--batch_size", dest="batch_size", type=int, default=1000
-    )
-    parser.add_argument(
-        "--test_batch_size",
-        dest="test_batch_size",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--early_stop", dest="early_stop", type=int, default=None
-    )
-    parser.add_argument(
-        "--show_latent", dest="show_latent", action="store_true"
-    )
-    parser.add_argument(
-        "--no_show_latent", dest="show_latent", action="store_false"
-    )
-    parser.set_defaults(show_latent=False)
-    parser = Trainer.add_argparse_args(parser)
-    parser, _ = cls.add_model_specific_args(parser)
-    args = parser.parse_args()
-
-    # ------------
-    # data
-    # ------------
-    dataset = dataset_cls.from_file(
-        args.data_path,
-        features=args.features,
-        shape=data_shape,
-        # scaler=MinMaxScaler(feature_range=(-1, 1)),
-        scaler=PyTMinMaxScaler(feature_range=(-1, 1)),
-        info_params={"features": args.info_features, "index": args.info_index},
-    )
-
-    train_loader, val_loader, test_loader = get_dataloaders(
-        dataset,
-        args.train_ratio,
-        args.val_ratio,
-        args.batch_size,
-        args.test_batch_size,
-    )
-
-    # ------------
-    # logger
-    # ------------
-    tb_logger = TensorBoardLogger(
-        "lightning_logs/",
-        name=args.network_name,
-        default_hp_metric=False,
-        log_graph=True,
-    )
-
-    # ------------
-    # model
-    # ------------
-    model = cls(
-        dataset_params=dataset.parameters,
-        config=args,
-    )
-
-    # ------------
-    # training
-    # ------------
-    checkpoint_callback = ModelCheckpoint(monitor="hp/valid_loss")
-    # checkpoint_callback = ModelCheckpoint()
-    if args.early_stop is not None:
-        early_stopping = EarlyStopping(
-            "hp/valid_loss", patience=args.early_stop
-        )
-        trainer = Trainer.from_argparse_args(
-            args,
-            callbacks=[checkpoint_callback, early_stopping],
-            logger=tb_logger,
-            # deterministic=True,
-        )
-    else:
-        trainer = Trainer.from_argparse_args(
-            args,
-            callbacks=[checkpoint_callback],
-            logger=tb_logger,
-            # deterministic=True,
-        )
-
-    if val_loader is not None:
-        trainer.fit(model, train_loader, val_loader)
-    else:
-        trainer.fit(model, train_loader)
-
-    # ------------
-    # testing
-    # ------------
-    if test_loader is not None:
-        trainer.test(test_dataloaders=test_loader)
 
 
 def build_weights(size: int, builder: rv_continuous, **kwargs) -> np.ndarray:

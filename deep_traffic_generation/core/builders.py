@@ -23,6 +23,9 @@ class CollectionBuilder(BuilderProtocol):
     def __add__(self, other: "CollectionBuilder") -> "CollectionBuilder":
         return CollectionBuilder(builders=self.builders + other.builders)
 
+    def __getitem__(self, idx: int) -> BuilderProtocol:
+        return self.builders[idx]
+
     def append(self, builder: BuilderProtocol) -> None:
         self.builders.append(builder)
 

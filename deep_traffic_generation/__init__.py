@@ -1,3 +1,8 @@
 # flake8: noqa
 from .core import datasets, losses
-from .tc_vae import TCVAE
+from .fcae import FCAE
+from .fcvae import FCVAE
+from .rae import RAE
+from .rvae import RVAE
+from .tcae import TCAE
+from .tcvae import TCVAE
