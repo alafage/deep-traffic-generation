@@ -530,7 +530,8 @@ class VAE(AE):
             * ``--scale``: Define the scale :math:`\\sigma` of the Normal law
               used to sample the reconstruction.
             * `fix-prior`: Whether the prior is learnable or not. Default to
-              False.
+              ``False``.
+
                 * ``--fix-prior``: is not learnable;
                 * ``--no-fix-prior``: is learnable.
 
