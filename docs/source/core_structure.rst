@@ -18,6 +18,8 @@ The `deep_traffic_generation` library provides the following classes:
   
 	- `TrafficDataset <core/traffic_dataset.html>`_;
 
+- `Latent Space Regularization <core/lsr.html>`_.
+
 .. toctree::
 	:hidden:
 
@@ -27,3 +29,4 @@ The `deep_traffic_generation` library provides the following classes:
 	core/ae
 	core/vae
 	core/traffic_dataset
+	core/lsr

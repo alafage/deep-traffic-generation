@@ -26,6 +26,26 @@ class CustomMSF(MixtureSameFamily):
     """
 
     def rsample(self, sample_shape=torch.Size()):
+        """Generates a sample_shape shaped reparameterized sample or
+        sample_shape shaped batch of reparameterized samples if the
+        distribution parameters are batched.
+
+        Method:
+
+            - Apply `Gumbel Sotmax
+              <https://pytorch.org/docs/stable/generated/torch.nn.functional.gumbel_softmax.html>`_
+              on component weights to get a one-hot tensor;
+            - Sample using rsample() from the component distribution;
+            - Use the one-hot tensor to select samples.
+
+        .. note::
+            The component distribution of the mixture should implements a
+            rsample() method.
+
+        .. warning::
+            Further studies should be made on this method. It is highly
+            possible that this method is not correct.
+        """
         assert (
             self.component_distribution.has_rsample
         ), "component_distribution attribute should implement rsample() method"
@@ -78,15 +98,20 @@ class NormalLSR(LSR):
 class GaussianMixtureLSR(LSR):
     """Gaussian Mixture Latent Space Regularization.
 
-    Neural networks for Gaussian Mixture reparametrization.
+    .. note::
+        It uses a distribution class built on top of MixtureSameFamily to add
+        a rsample() method.
+
+        .. autoclass:: deep_traffic_generation.core.lsr.CustomMSF
+            :members: rsample
 
     Args:
-        input_dim (int): [description]
-        out_dim (int): [description]
+        input_dim (int): size of each input sample.
+        out_dim (int):size of each output sample.
         n_components (int, optional): Number of components in the Gaussian
-        Mixture. Defaults to ``1``.
+            Mixture. Defaults to ``1``.
         fix_prior (bool, optional): Whether to optimize the prior distribution.
-        Defaults to ``True``.
+            Defaults to ``True``.
     """
 
     def __init__(
@@ -136,6 +161,14 @@ class GaussianMixtureLSR(LSR):
         self.register_parameter("prior_log_vars", self.prior_log_vars)
 
     def forward(self, hidden: torch.Tensor) -> Distribution:
+        """[summary]
+
+        Args:
+            hidden (torch.Tensor): [description]
+
+        Returns:
+            Distribution: [description]
+        """
         locs = torch.cat(
             [
                 self.z_locs[n](hidden).unsqueeze(1)

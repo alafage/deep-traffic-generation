@@ -21,7 +21,14 @@ from .utils import plot_traffic, traffic_from_data
 
 # fmt: on
 class LSR(nn.Module):
-    """Abstract class for Latent Space Regularization."""
+    """Abstract for Latent Space Regularization Networks.
+
+    Args:
+        input_dim (int): size of each input sample.
+        out_dim (int): size pf each output sample.
+        fix_prior (bool, optional): Whether to optimize the prior distribution.
+            Defaults to ``True``.
+    """
 
     def __init__(self, input_dim: int, out_dim: int, fix_prior: bool = True):
         super().__init__()
@@ -31,15 +38,45 @@ class LSR(nn.Module):
         self.fix_prior = fix_prior
 
     def forward(self, hidden: torch.Tensor) -> Distribution:
+        """Defines the computation performed at every call.
+
+        Returns a Distribution object according to a tensor. Ideally the
+        Distribution object implements a rsample() method.
+
+        .. note::
+            Should be overriden by all subclasses.
+        """
         raise NotImplementedError()
 
     def dist_params(self, p: Distribution) -> Tuple:
+        """Returns a tuple of tensors corresponding to the parameters of
+        a given distribution.
+
+        .. note::
+            Should be overriden by all subclasses.
+        """
         raise NotImplementedError()
 
     def get_posterior(self, dist_params: Tuple) -> Distribution:
+        """Returns a Distribution object according to a tuple of parameters.
+        Inverse method of dist_params().
+
+        Args:
+            dist_params (Tuple): tuple of tensors corresponding to distribution
+                parameters.
+
+        .. note::
+            Should be overriden by all subclasses.
+        """
         raise NotImplementedError()
 
-    def get_prior(self, batch_size) -> Distribution:
+    def get_prior(self, batch_size: int) -> Distribution:
+        """Returns the prior distribution we want the posterior distribution
+        to fit.
+
+        .. note::
+            Should be overriden by all subclasses.
+        """
         raise NotImplementedError()
 
 

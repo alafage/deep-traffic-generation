@@ -61,14 +61,6 @@ Is provided along this project a documentation generated using [Sphinx](https://
 
 ```bash
 make html
+# or
+sphinx-build -b html source build
 ```
-
-<!--
-### Citation   
-```
-@article{Adrien Lafage,
-  title={Your Title},
-  author={Your team},
-  journal={Location},
-}
--->
